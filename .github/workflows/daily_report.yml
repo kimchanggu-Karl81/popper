@@ -2,8 +2,9 @@ name: Daily Treasury Report
 
 on:
   schedule:
+    # 한국 시간(KST) 오전 8시는 UTC 기준 전날 23시입니다.
     - cron: '0 23 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # 수동으로 즉시 실행할 수 있는 버튼을 활성화합니다.
 
 jobs:
   build:
@@ -15,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # 3.9 에러를 방지하기 위해 3.10 이상으로 설정
+          python-version: '3.10' # 3.9 버전의 문법 에러를 방지하기 위해 3.10으로 설정
 
       - name: Install dependencies
         run: |
