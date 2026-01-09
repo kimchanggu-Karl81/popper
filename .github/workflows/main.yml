@@ -2,25 +2,34 @@ name: Daily Treasury Report
 
 on:
   schedule:
-    - cron: '0 23 * * *' # 매일 한국 시간 오전 8시 (UTC 23:00)
-  workflow_dispatch: # 이 부분이 수동 실행 버튼을 만들어줍니다.
+    - cron: '0 23 * * *' # 매일 KST 08:00
+  workflow_dispatch: # 즉시 실행 버튼
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      # [중요] 1. 레포지토리의 파일을 Runner로 가져옵니다.
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
+      # [디버깅] 2. 현재 경로에 파일이 있는지 확인 (에러 방지용)
+      - name: List files in current directory
+        run: ls -R
+
+      # 3. 파이썬 설정
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
+      # 4. 라이브러리 설치
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install yfinance matplotlib requests pandas
 
+      # 5. 스크립트 실행
       - name: Run bot script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
