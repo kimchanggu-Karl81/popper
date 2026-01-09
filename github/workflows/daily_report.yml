@@ -2,8 +2,8 @@ name: Daily Treasury Report
 
 on:
   schedule:
-    - cron: '0 23 * * *' # 매일 KST 08:00
-  workflow_dispatch: # 수동 실행 버튼
+    - cron: '0 23 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -15,13 +15,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # 버전을 3.11로 확실히 높입니다.
+          python-version: '3.10' # 3.9에서 3.10으로 확실히 변경
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install yfinance==0.2.52 matplotlib requests pandas
-          # yfinance 버전을 특정하여 안정성을 높였습니다.
+          pip install yfinance matplotlib requests pandas
 
       - name: Run bot script
         env:
