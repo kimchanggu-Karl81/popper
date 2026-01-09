@@ -15,7 +15,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # 따옴표를 포함해 3.11로 확실히 명시
+          python-version: '3.10' # 3.9 에러를 방지하기 위해 3.10 이상으로 설정
 
       - name: Install dependencies
         run: |
