@@ -1,0 +1,29 @@
+name: Daily Stock Report Bot
+
+on:
+  schedule:
+    # 한국 시간(KST) 오전 8시 30분은 UTC 기준 전날 23시 30분입니다.
+    - cron: '30 23 * * *'
+  workflow_dispatch: # 수동으로 실행해보고 싶을 때 사용
+
+jobs:
+  run_bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install pykrx python-telegram-bot
+
+      - name: Run script
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python stock_bot.py
