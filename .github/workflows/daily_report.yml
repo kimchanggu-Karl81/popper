@@ -1,12 +1,10 @@
-name: Daily Treasury Report
+name: Daily Market & Treasury Report
 
 on:
   schedule:
-    - cron: '0 23 * * *' # 한국 시간 오전 8시
-  workflow_dispatch:
-
-permissions: # 권한을 명시적으로 부여합니다
-  contents: write
+    # 한국 시간 오전 8시 = UTC 전날 23시
+    - cron: '0 23 * * *'
+  workflow_dispatch: # 수동 실행 버튼 활성화
 
 jobs:
   build:
@@ -25,8 +23,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install yfinance matplotlib requests pandas
 
-      - name: Run bot script
+      - name: Run all scripts
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python daily_bot.py
+        run: |
+          # 기존 국채 금리 봇 실행
+          python daily_bot.py
+          # 새로 만든 한/미 증시 분석 봇 실행
+          python market_report.py
