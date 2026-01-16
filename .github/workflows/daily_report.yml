@@ -34,3 +34,5 @@ jobs:
           python market_report.py
           # 3. 누락 없는 엑셀 스냅샷 생성 및 전송
           python stock_snapshot.py
+          # 4. 일일 주식 리포트 실행
+          python daily_stock_report.py
