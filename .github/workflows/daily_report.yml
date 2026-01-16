@@ -32,3 +32,5 @@ jobs:
           python daily_bot.py
           # 새로 만든 한/미 증시 분석 봇 실행
           python market_report.py
+          # 새로 만든 데일리 증시 스냅샷 봇 실행
+          python stock_snapshot.py
