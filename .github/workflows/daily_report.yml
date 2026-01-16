@@ -18,20 +18,22 @@ jobs:
         with:
           python-version: '3.10'
 
-- name: Install dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # pandas와 openpyxl 추가
+          # 엑셀 생성을 위해 pandas와 openpyxl 필수 설치
           pip install yfinance requests pandas openpyxl 
 
       - name: Run all scripts
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run:
-          # 기존 국채 금리 봇 실행
+        run: |
+          # 1. 기존 국채 금리 봇 실행
           python daily_bot.py
-          # 새로 만든 한/미 증시 분석 봇 실행
+          
+          # 2. 증시 분석 봇 실행
           python market_report.py
-          # 새로 만든 데일리 증시 스냅샷 봇 실행
+          
+          # 3. 누락 데이터(업종별 지수/종목) 포함 엑셀 파일 생성 및 전송 봇 실행
           python stock_snapshot.py
