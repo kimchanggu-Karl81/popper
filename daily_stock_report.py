@@ -2,6 +2,7 @@ import yfinance as yf
 import requests
 import os
 from datetime import datetime
+import re
 
 # 환경 변수 (GitHub Secrets)
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -20,40 +21,33 @@ def get_index_info(ticker):
         return "N/A", "0.00%"
 
 def get_realtime_news():
-    """뉴스 제목 추출 로직 강화 (No Title 방지)"""
+    """안정적인 경제 뉴스 수집 (RSS/Search 우회 방식)"""
     try:
-        market = yf.Ticker("^GSPC")
-        raw_news = market.news
+        # 야후 파이낸스 뉴스 API가 불안정할 경우를 대비한 직접 접근
+        # 헤더 설정을 통해 봇 차단을 방지합니다.
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        url = "https://finance.yahoo.com/rss/topstories"
         
-        if not raw_news:
-            return "현재 업데이트된 뉴스가 없습니다.\n"
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        # XML 데이터에서 제목과 링크를 추출하는 간단한 정규식 처리
+        titles = re.findall(r"<title>(.*?)</title>", response.text)[2:7] # 상위 5개 (0,1번은 채널 정보)
+        links = re.findall(r"<link>(.*?)</link>", response.text)[2:7]
+        
+        if not titles:
+            return "현재 새로운 뉴스가 없습니다.\n"
 
         news_text = ""
-        for i, item in enumerate(raw_news[:5]):
-            title, link, publisher = "No Title", "#", "Finance"
+        for i, (title, link) in enumerate(zip(titles, links)):
+            # HTML 특수문자 제거 및 텔레그램 마크다운 정화
+            clean_title = title.replace("<![CDATA[", "").replace("]]>", "")
+            clean_title = clean_title.replace("[", "{").replace("]", "}").replace("*", "")
             
-            # 데이터가 딕셔너리인 경우 (다양한 키값 대응)
-            if isinstance(item, dict):
-                title = item.get('title') or item.get('content', {}).get('title') or "No Title"
-                link = item.get('link') or item.get('content', {}).get('clickThroughUrl', {}).get('url') or "#"
-                publisher = item.get('publisher') or "Yahoo Finance"
-            # 데이터가 객체인 경우
-            else:
-                title = getattr(item, 'title', getattr(item, 'summary', "No Title"))
-                link = getattr(item, 'link', "#")
-                publisher = getattr(item, 'publisher', "Yahoo Finance")
-
-            # 텔레그램 마크다운 에러 방지를 위한 정화
-            clean_title = str(title).replace('[', '{').replace(']', '}').replace('(', ' ').replace(')', ' ').replace('*', '')
-            
-            # 제목이 여전히 No Title인 경우 리스트에서 제외
-            if clean_title == "No Title": continue
-                
-            news_text += f"{i+1}. [{clean_title}]({link}) - _{publisher}_\n"
+            news_text += f"{i+1}. [{clean_title}]({link})\n"
         
-        return news_text if news_text else "최신 뉴스를 가져오는 중입니다...\n"
+        return news_text
     except Exception as e:
-        return f"⚠️ 뉴스 로딩 지연 (네트워크 확인 필요)\n"
+        return "⚠️ 뉴스 서비스 일시 점검 중입니다.\n"
 
 def make_report():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -99,10 +93,10 @@ def send_telegram():
         "disable_web_page_preview": True
     }
     
-    response = requests.post(url, json=payload)
-    if response.status_code != 200:
-        # 마크다운 실패 시 일반 텍스트 전송
-        payload["parse_mode"] = ""
+    # 전송 및 실패 시 재시도
+    res = requests.post(url, json=payload)
+    if res.status_code != 200:
+        payload["parse_mode"] = "" # 마크다운 에러 시 일반 텍스트로 전환
         requests.post(url, json=payload)
 
 if __name__ == "__main__":
