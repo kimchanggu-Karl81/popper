@@ -33,9 +33,7 @@ def get_realtime_news():
         news_text = ""
         for i, (title, link) in enumerate(zip(titles, links)):
             clean_title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
-            # 특수문자 제거하여 마크다운 에러 방지
             clean_title = re.sub(r'[\[\]\*\(\)_]', '', clean_title)
-            # [제목](링크) 형식
             news_text += f"{i+1}. [{clean_title}]({link})\n"
         
         return news_text if news_text else "최신 뉴스가 없습니다.\n"
@@ -53,7 +51,7 @@ def make_report():
         val, rate = get_stock_info(ticker)
         msg += f"• *{name}*: {val} ({rate})\n"
 
-    # 2. 한국 주요 종목 실시간 수익률
+    # 2. 한국 주요 종목 실시간 수익률 (시각화 로직 개선)
     msg += "\n🇰🇷 *국내 주요 종목 현황*\n"
     stocks = [
         ("전기전자", "005930.KS", "삼성전자"),
@@ -65,10 +63,23 @@ def make_report():
     
     for sector, ticker, name in stocks:
         _, rate = get_stock_info(ticker)
-        # 수익률에 따른 바 그래프 표시 (간이 시각화)
         rate_val = float(rate.replace('%', ''))
-        bar = "■" * max(1, min(5, int(abs(rate_val) + 2)))
-        msg += f"`{sector:.<5}` {bar.ljust(5, '□')} {name}({rate})\n"
+        
+        # 상승/하락에 따른 아이콘 및 막대 논리
+        if rate_val > 0:
+            status_icon = "🔴"  # 상승은 빨간색
+            # 1%당 막대 한 칸 (최대 5칸)
+            fill_count = max(1, min(5, int(rate_val + 0.5)))
+        elif rate_val < 0:
+            status_icon = "🔵"  # 하락은 파란색
+            # 하락폭이 클수록 막대가 더 많이 채워짐
+            fill_count = max(1, min(5, int(abs(rate_val) + 0.5)))
+        else:
+            status_icon = "⚪"  # 보합
+            fill_count = 0
+
+        bar = "■" * fill_count + "□" * (5 - fill_count)
+        msg += f"{status_icon} `{sector:.<5}` {bar} {name}({rate})\n"
 
     # 3. 뉴스 섹션
     msg += "\n📰 *실시간 주요 경제 뉴스 (클릭)*\n"
@@ -88,7 +99,6 @@ def send_telegram():
     
     res = requests.post(url, json=payload)
     if res.status_code != 200:
-        # 실패 시 마크다운 없이 재시도
         payload["parse_mode"] = ""
         requests.post(url, json=payload)
 
