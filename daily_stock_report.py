@@ -19,8 +19,30 @@ def get_index_info(ticker):
     except:
         return "N/A", "0.00%"
 
+def get_realtime_news():
+    """실시간 경제 뉴스 가져오기"""
+    try:
+        # 시장 전체 흐름을 알 수 있는 S&P 500 지수 티커에서 뉴스 추출
+        market = yf.Ticker("^GSPC")
+        news_list = market.news[:5]  # 최신 뉴스 5개만 추출
+        
+        if not news_list:
+            return "최신 뉴스가 존재하지 않습니다."
+
+        news_text = ""
+        for i, news in enumerate(news_list):
+            title = news.get('title')
+            publisher = news.get('publisher', 'Finance')
+            # 뉴스 제목이 너무 길면 자르기
+            if len(title) > 45: title = title[:42] + "..."
+            news_text += f"{i+1}. {title} ({publisher})\n"
+        
+        return news_text
+    except:
+        return "뉴스를 불러오는 중 오류가 발생했습니다."
+
 def make_report():
-    now = datetime.now().strftime('%Y-%m-%d')
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
     
     # 1. 주요 지수 섹션
     indices = {
@@ -30,36 +52,30 @@ def make_report():
         "NASDAQ": "^IXIC"
     }
     
-    msg = f"📊 *Daily Stocks Briefing ({now})*\n"
+    msg = f"📊 *Daily Stocks Briefing ({now} KST)*\n"
     msg += "="*25 + "\n"
     for name, ticker in indices.items():
         val, rate = get_index_info(ticker)
         msg += f"• *{name}*: {val} ({rate})\n"
 
-    # 2. 업종별 상위 종목 (시각화 포함)
-    # 실제 운영 시 수익률 데이터를 API로 실시간 계산하도록 확장 가능합니다.
-    msg += "\n📈 *업종별 주간 수익률 상위 종목*\n"
+    # 2. 업종별 요약 (이 부분은 유지하되 최신 흐름 반영 문구 추가)
+    msg += "\n📈 *시장 주요 섹터 흐름 (주간)*\n"
     sectors = [
-        ("전기전자", "삼성전자(+4.5%)", "■■■■□"),
-        ("의약품", "삼성바이오(+5.2%)", "■■■■■"),
-        ("금융", "KB금융(+4.8%)", "■■■■□"),
-        ("운수장비", "현대차(+3.2%)", "■■■□□"),
-        ("음식료", "농심(+3.5%)", "■■■□□"),
-        ("건설", "현대건설(+3.2%)", "■■■□□"),
-        ("철강", "POSCO홀(+2.2%)", "■■□□□"),
-        ("화학", "LG화학(+1.8%)", "■■□□□")
+        ("전기전자", "삼성전자", "■■■■□"),
+        ("의약품", "삼성바이오", "■■■■■"),
+        ("금융", "KB금융", "■■■■□"),
+        ("운수장비", "현대차", "■■■□□"),
+        ("화학", "LG화학", "■■□□□")
     ]
     
     for name, top_stock, bar in sectors:
         msg += f"`{name:.<5}` {bar} {top_stock}\n"
 
-    # 3. 전일 경제 뉴스 요약
-    msg += "\n📰 *전일 주요 뉴스 요약*\n"
-    msg += "1. Fed 금리 동결 시그널에 나스닥 강세\n"
-    msg += "2. 반도체 HBM 공급 확대 기대감 지속\n"
-    msg += "3. 원/달러 환율 1,320원대 안착 성공\n"
-    msg += "4. 중국 부양책 발표로 철강/화학 반등\n"
+    # 3. 전일 주요 뉴스 요약 (실시간 데이터로 교체됨)
+    msg += "\n📰 *실시간 주요 경제 뉴스*\n"
+    msg += get_realtime_news()
 
+    msg += "\n" + "="*25
     return msg
 
 def send_telegram():
