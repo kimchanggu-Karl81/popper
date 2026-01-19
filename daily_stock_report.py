@@ -9,18 +9,26 @@ TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def get_stock_info(ticker):
-    """개별 종목 또는 지수의 현재가와 변동률 가져오기"""
+    """현재가와 변동률 가져오기 및 기호(▲/▼) 적용"""
     try:
         data = yf.Ticker(ticker).history(period="2d")
-        if len(data) < 2: return "N/A", "0.00%"
+        if len(data) < 2: return "N/A", "0.00%", ""
         curr = data['Close'].iloc[-1]
         prev = data['Close'].iloc[-2]
         change = ((curr - prev) / prev) * 100
-        # 한국 종목(.KS)은 정수, 그 외(미국 등)는 소수점 2자리
-        price_fmt = f"{curr:,.0f}" if ".KS" in ticker else f"{curr:,.2f}"
-        return price_fmt, f"{change:+.2f}%"
+        
+        mark = "▲" if change > 0 else "▼" if change < 0 else ""
+        price_fmt = f"{curr:,.0f}" if ".KS" in ticker or ".KQ" in ticker else f"{curr:,.2f}"
+        return price_fmt, f"{change:+.2f}%", mark
     except:
-        return "N/A", "0.00%"
+        return "N/A", "0.00%", ""
+
+def is_us_market_open():
+    """미국 증시 휴장 여부 체크 (MLK Day 등)"""
+    # 2026-01-19는 마틴 루터 킹 주니어 날로 휴장
+    today = datetime.now().strftime('%Y-%m-%d')
+    holidays = ['2026-01-19', '2026-02-16', '2026-04-03'] # 주요 휴장일 예시
+    return "🇺🇸 [미국 증시 휴장]" if today in holidays else ""
 
 def get_realtime_news():
     """RSS 피드 실시간 뉴스"""
@@ -36,20 +44,30 @@ def get_realtime_news():
             clean_title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
             clean_title = re.sub(r'[\[\]\*\(\)_]', '', clean_title)
             news_text += f"{i+1}. [{clean_title}]({link})\n"
-        return news_text if news_text else "최신 뉴스가 없습니다.\n"
+        return news_text
     except:
-        return "⚠️ 뉴스 서비스 로딩 실패\n"
+        return "⚠️ 뉴스 로딩 실패\n"
 
 def make_report():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    us_status = is_us_market_open()
     
-    # 1. 주요 지수
-    indices = {"KOSPI": "^KS11", "KOSPI 200": "^KS200", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
+    # 1. 주요 지수 (KOSDAQ 추가)
+    indices = {
+        "KOSPI": "^KS11", 
+        "KOSPI 200": "^KS200", 
+        "KOSDAQ": "^KQ11", 
+        "S&P 500": "^GSPC", 
+        "NASDAQ": "^IXIC"
+    }
+    
     msg = f"📊 *Daily Stocks Briefing ({now})*\n"
+    if us_status: msg += f" {us_status}\n"
     msg += " " + "="*23 + "\n"
+    
     for name, ticker in indices.items():
-        val, rate = get_stock_info(ticker)
-        msg += f"• *{name}*: {val} ({rate})\n"
+        val, rate, mark = get_stock_info(ticker)
+        msg += f"• *{name:.<10}*: {val} ({mark}{rate})\n"
 
     # 2. 국내 주요 종목 현황
     msg += "\n🇰🇷 *국내 주요 종목 현황*\n"
@@ -61,7 +79,7 @@ def make_report():
         ("화학", "051910.KS", "LG화학")
     ]
     for sector, ticker, name in stocks:
-        _, rate = get_stock_info(ticker)
+        _, rate, _ = get_stock_info(ticker)
         rate_val = float(rate.replace('%', ''))
         icon = "🔴" if rate_val > 0 else "🔵" if rate_val < 0 else "⚪"
         fill = max(1, min(5, int(abs(rate_val) + 0.5))) if rate_val != 0 else 0
@@ -72,18 +90,18 @@ def make_report():
     msg += "\n📰 *실시간 주요 경제 뉴스*\n"
     msg += get_realtime_news()
 
-    # 4. 신규 상장 및 주목 ETF (NEW!)
-    # 상장된 지 얼마 안 된 종목이나 트렌디한 ETF를 여기에 수동으로 업데이트하세요.
+    # 4. 신규 상장 및 주목 ETF (디테일 강화)
     msg += "\n🚀 *신규 상장 및 주목 ETF*\n"
     etfs = [
-        ("미국/AI", "NVDX", "Nvidia 2x"),    # 신규 상장/주목 ETF 예시
+        ("미국/AI", "NVDX", "Nvidia 2x"),
         ("미국/반도체", "SOXX", "iShares Semi"),
-        ("한국/배당", "482730.KS", "리얼티인컴"), # 국내 신규 상장 예시
+        ("한국/배당", "482730.KS", "리얼티인컴"),
         ("한국/AI", "471150.KS", "AI반도체")
     ]
     for category, ticker, name in etfs:
-        _, rate = get_stock_info(ticker)
-        msg += f"▫️ `{category:.<7}` {name} ({rate})\n"
+        _, rate, mark = get_stock_info(ticker)
+        # ETF는 볼드체로 강조하여 가독성 업그레이드
+        msg += f"▫️ `{category:.<7}` {name} *({mark}{rate})*\n"
 
     msg += "\n" + "="*25
     return msg
@@ -97,10 +115,7 @@ def send_telegram():
         "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
-    res = requests.post(url, json=payload)
-    if res.status_code != 200:
-        payload["parse_mode"] = ""
-        requests.post(url, json=payload)
+    requests.post(url, json=payload)
 
 if __name__ == "__main__":
     send_telegram()
