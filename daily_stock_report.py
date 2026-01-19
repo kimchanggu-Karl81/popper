@@ -8,78 +8,71 @@ import re
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-def get_index_info(ticker):
-    """지수 데이터 가져오기"""
+def get_stock_info(ticker):
+    """개별 종목 또는 지수의 현재가와 변동률 가져오기"""
     try:
-        data = yf.Ticker(ticker).history(period="5d")
-        if data.empty: return "N/A", "0.00%"
-        price = data['Close'].iloc[-1]
-        prev_price = data['Close'].iloc[-2]
-        change = ((price - prev_price) / prev_price) * 100
-        return f"{price:,.2f}", f"{change:+.2f}%"
+        data = yf.Ticker(ticker).history(period="2d")
+        if len(data) < 2: return "N/A", "0.00%"
+        curr = data['Close'].iloc[-1]
+        prev = data['Close'].iloc[-2]
+        change = ((curr - prev) / prev) * 100
+        return f"{curr:,.0f}" if ".KS" in ticker else f"{curr:,.2f}", f"{change:+.2f}%"
     except:
         return "N/A", "0.00%"
 
 def get_realtime_news():
-    """안정적인 경제 뉴스 수집 (RSS/Search 우회 방식)"""
+    """RSS 피드를 활용한 실시간 뉴스 (링크 최적화)"""
     try:
-        # 야후 파이낸스 뉴스 API가 불안정할 경우를 대비한 직접 접근
-        # 헤더 설정을 통해 봇 차단을 방지합니다.
         headers = {'User-Agent': 'Mozilla/5.0'}
         url = "https://finance.yahoo.com/rss/topstories"
-        
         response = requests.get(url, headers=headers, timeout=10)
         
-        # XML 데이터에서 제목과 링크를 추출하는 간단한 정규식 처리
-        titles = re.findall(r"<title>(.*?)</title>", response.text)[2:7] # 상위 5개 (0,1번은 채널 정보)
+        titles = re.findall(r"<title>(.*?)</title>", response.text)[2:7]
         links = re.findall(r"<link>(.*?)</link>", response.text)[2:7]
         
-        if not titles:
-            return "현재 새로운 뉴스가 없습니다.\n"
-
         news_text = ""
         for i, (title, link) in enumerate(zip(titles, links)):
-            # HTML 특수문자 제거 및 텔레그램 마크다운 정화
-            clean_title = title.replace("<![CDATA[", "").replace("]]>", "")
-            clean_title = clean_title.replace("[", "{").replace("]", "}").replace("*", "")
-            
+            clean_title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
+            # 특수문자 제거하여 마크다운 에러 방지
+            clean_title = re.sub(r'[\[\]\*\(\)_]', '', clean_title)
+            # [제목](링크) 형식
             news_text += f"{i+1}. [{clean_title}]({link})\n"
         
-        return news_text
-    except Exception as e:
-        return "⚠️ 뉴스 서비스 일시 점검 중입니다.\n"
+        return news_text if news_text else "최신 뉴스가 없습니다.\n"
+    except:
+        return "⚠️ 뉴스 서비스를 불러올 수 없습니다.\n"
 
 def make_report():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     
-    indices = {
-        "KOSPI": "^KS11",
-        "KOSPI 200": "^KS200",
-        "S&P 500": "^GSPC",
-        "NASDAQ": "^IXIC"
-    }
-    
+    # 1. 지수 정보 (실시간)
+    indices = {"KOSPI": "^KS11", "KOSPI 200": "^KS200", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
     msg = f"📊 *Daily Stocks Briefing ({now})*\n"
-    msg += "="*25 + "\n"
+    msg += " " + "="*23 + "\n"
     for name, ticker in indices.items():
-        val, rate = get_index_info(ticker)
+        val, rate = get_stock_info(ticker)
         msg += f"• *{name}*: {val} ({rate})\n"
 
-    msg += "\n📈 *시장 주요 섹터 흐름 (주간)*\n"
-    sectors = [
-        ("전기전자", "삼성전자", "■■■■□"),
-        ("의약품", "삼성바이오", "■■■■■"),
-        ("금융", "KB금융", "■■■■□"),
-        ("운수장비", "현대차", "■■■□□"),
-        ("화학", "LG화학", "■■□□□")
+    # 2. 한국 주요 종목 실시간 수익률
+    msg += "\n🇰🇷 *국내 주요 종목 현황*\n"
+    stocks = [
+        ("전기전자", "005930.KS", "삼성전자"),
+        ("의약품", "207940.KS", "삼성바이오"),
+        ("금융", "055550.KS", "신한지주"),
+        ("운수장비", "005380.KS", "현대차"),
+        ("화학", "051910.KS", "LG화학")
     ]
     
-    for name, top_stock, bar in sectors:
-        msg += f"`{name:.<5}` {bar} {top_stock}\n"
+    for sector, ticker, name in stocks:
+        _, rate = get_stock_info(ticker)
+        # 수익률에 따른 바 그래프 표시 (간이 시각화)
+        rate_val = float(rate.replace('%', ''))
+        bar = "■" * max(1, min(5, int(abs(rate_val) + 2)))
+        msg += f"`{sector:.<5}` {bar.ljust(5, '□')} {name}({rate})\n"
 
-    msg += "\n📰 *실시간 주요 경제 뉴스 (클릭 시 이동)*\n"
+    # 3. 뉴스 섹션
+    msg += "\n📰 *실시간 주요 경제 뉴스 (클릭)*\n"
     msg += get_realtime_news()
-
     msg += "\n" + "="*25
     return msg
 
@@ -93,10 +86,10 @@ def send_telegram():
         "disable_web_page_preview": True
     }
     
-    # 전송 및 실패 시 재시도
     res = requests.post(url, json=payload)
     if res.status_code != 200:
-        payload["parse_mode"] = "" # 마크다운 에러 시 일반 텍스트로 전환
+        # 실패 시 마크다운 없이 재시도
+        payload["parse_mode"] = ""
         requests.post(url, json=payload)
 
 if __name__ == "__main__":
