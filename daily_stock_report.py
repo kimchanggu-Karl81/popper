@@ -20,31 +20,38 @@ def get_index_info(ticker):
         return "N/A", "0.00%"
 
 def get_realtime_news():
-    """실시간 경제 뉴스 가져오기"""
+    """실시간 경제 뉴스 가져오기 (에러 방지 및 링크 추가)"""
     try:
-        # 시장 전체 흐름을 알 수 있는 S&P 500 지수 티커에서 뉴스 추출
+        # S&P 500 지수 티커에서 뉴스 추출
         market = yf.Ticker("^GSPC")
-        news_list = market.news[:5]  # 최신 뉴스 5개만 추출
+        news_list = market.news
         
         if not news_list:
-            return "최신 뉴스가 존재하지 않습니다."
+            return "최신 뉴스가 존재하지 않습니다.\n"
 
         news_text = ""
-        for i, news in enumerate(news_list):
-            title = news.get('title')
-            publisher = news.get('publisher', 'Finance')
-            # 뉴스 제목이 너무 길면 자르기
-            if len(title) > 45: title = title[:42] + "..."
-            news_text += f"{i+1}. {title} ({publisher})\n"
+        # 상위 5개 뉴스만 처리
+        for i, news in enumerate(news_list[:5]):
+            # 객체 또는 딕셔너리 형태 모두 대응 가능하도록 처리
+            title = news.get('title') if isinstance(news, dict) else getattr(news, 'title', 'No Title')
+            link = news.get('link') if isinstance(news, dict) else getattr(news, 'link', '#')
+            publisher = news.get('publisher', 'Finance') if isinstance(news, dict) else getattr(news, 'publisher', 'Finance')
+
+            # Markdown 특수문자 에러 방지 (대괄호 등 제거)
+            clean_title = title.replace('[', '').replace(']', '').replace('*', '')
+            
+            # [제목](링크) 형식으로 클릭 가능하게 구성
+            news_text += f"{i+1}. [{clean_title}]({link}) ({publisher})\n"
         
         return news_text
-    except:
-        return "뉴스를 불러오는 중 오류가 발생했습니다."
+    except Exception as e:
+        print(f"News Error Detail: {e}") # 로그 확인용
+        return "⚠️ 뉴스를 불러오는 중 오류가 발생했습니다.\n"
 
 def make_report():
+    # 현재 시간 (한국 시간 기준)
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     
-    # 1. 주요 지수 섹션
     indices = {
         "KOSPI": "^KS11",
         "KOSPI 200": "^KS200",
@@ -52,13 +59,12 @@ def make_report():
         "NASDAQ": "^IXIC"
     }
     
-    msg = f"📊 *Daily Stocks Briefing ({now} KST)*\n"
+    msg = f"📊 *Daily Stocks Briefing ({now})*\n"
     msg += "="*25 + "\n"
     for name, ticker in indices.items():
         val, rate = get_index_info(ticker)
         msg += f"• *{name}*: {val} ({rate})\n"
 
-    # 2. 업종별 요약 (이 부분은 유지하되 최신 흐름 반영 문구 추가)
     msg += "\n📈 *시장 주요 섹터 흐름 (주간)*\n"
     sectors = [
         ("전기전자", "삼성전자", "■■■■□"),
@@ -71,8 +77,7 @@ def make_report():
     for name, top_stock, bar in sectors:
         msg += f"`{name:.<5}` {bar} {top_stock}\n"
 
-    # 3. 전일 주요 뉴스 요약 (실시간 데이터로 교체됨)
-    msg += "\n📰 *실시간 주요 경제 뉴스*\n"
+    msg += "\n📰 *실시간 주요 경제 뉴스 (클릭 시 이동)*\n"
     msg += get_realtime_news()
 
     msg += "\n" + "="*25
@@ -84,7 +89,8 @@ def send_telegram():
     payload = {
         "chat_id": CHAT_ID,
         "text": report_text,
-        "parse_mode": "Markdown"
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True # 링크 미리보기로 메시지가 지저분해지는 것 방지
     }
     
     response = requests.post(url, json=payload)
