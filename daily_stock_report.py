@@ -20,36 +20,45 @@ def get_index_info(ticker):
         return "N/A", "0.00%"
 
 def get_realtime_news():
-    """실시간 경제 뉴스 가져오기 (에러 방지 및 링크 추가)"""
+    """실시간 경제 뉴스 가져오기 (데이터 구조 변화 완벽 대응)"""
     try:
-        # S&P 500 지수 티커에서 뉴스 추출
+        # 시장 지수 뉴스 호출
         market = yf.Ticker("^GSPC")
-        news_list = market.news
+        raw_news = market.news
         
-        if not news_list:
-            return "최신 뉴스가 존재하지 않습니다.\n"
+        if not raw_news:
+            return "현재 업데이트된 뉴스가 없습니다.\n"
 
         news_text = ""
-        # 상위 5개 뉴스만 처리
-        for i, news in enumerate(news_list[:5]):
-            # 객체 또는 딕셔너리 형태 모두 대응 가능하도록 처리
-            title = news.get('title') if isinstance(news, dict) else getattr(news, 'title', 'No Title')
-            link = news.get('link') if isinstance(news, dict) else getattr(news, 'link', '#')
-            publisher = news.get('publisher', 'Finance') if isinstance(news, dict) else getattr(news, 'publisher', 'Finance')
+        # 상위 5개 뉴스 추출
+        for i, item in enumerate(raw_news[:5]):
+            try:
+                # 1. 데이터 추출 (딕셔너리 및 객체 형태 모두 대응)
+                if isinstance(item, dict):
+                    title = item.get('title', 'No Title')
+                    link = item.get('link', '#')
+                    publisher = item.get('publisher', 'Finance')
+                else:
+                    # 속성으로 접근 시도 (getattr 사용으로 에러 방지)
+                    title = getattr(item, 'title', 'No Title')
+                    link = getattr(item, 'link', '#')
+                    publisher = getattr(item, 'publisher', 'Finance')
 
-            # Markdown 특수문자 에러 방지 (대괄호 등 제거)
-            clean_title = title.replace('[', '').replace(']', '').replace('*', '')
-            
-            # [제목](링크) 형식으로 클릭 가능하게 구성
-            news_text += f"{i+1}. [{clean_title}]({link}) ({publisher})\n"
+                # 2. Markdown 특수문자 정화 (에러의 주요 원인)
+                # 텔레그램 Markdown에서 [], (), * 등은 예약어이므로 제거하거나 대체해야 함
+                clean_title = title.replace('[', '{').replace(']', '}').replace('(', ' ').replace(')', ' ').replace('*', '')
+                
+                # 3. 메시지 생성
+                news_text += f"{i+1}. [{clean_title}]({link}) - _{publisher}_\n"
+            except:
+                continue
         
-        return news_text
+        return news_text if news_text else "뉴스를 구성하는 중 오류가 발생했습니다.\n"
     except Exception as e:
-        print(f"News Error Detail: {e}") # 로그 확인용
-        return "⚠️ 뉴스를 불러오는 중 오류가 발생했습니다.\n"
+        print(f"DEBUG - News Function Error: {e}")
+        return "⚠️ 최신 뉴스를 불러올 수 없습니다. (API 통신 오류)\n"
 
 def make_report():
-    # 현재 시간 (한국 시간 기준)
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     
     indices = {
@@ -89,15 +98,18 @@ def send_telegram():
     payload = {
         "chat_id": CHAT_ID,
         "text": report_text,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True # 링크 미리보기로 메시지가 지저분해지는 것 방지
+        "parse_mode": "Markdown", # 혹은 "HTML"로 변경 가능
+        "disable_web_page_preview": True
     }
     
     response = requests.post(url, json=payload)
-    if response.status_code == 200:
-        print("Telegram 리포트 전송 성공!")
+    # 만약 Markdown 에러로 실패할 경우 일반 텍스트로 재시도
+    if response.status_code != 200:
+        payload["parse_mode"] = ""
+        requests.post(url, json=payload)
+        print(f"전송 재시도 (Markdown 오류 가능성): {response.text}")
     else:
-        print(f"전송 실패: {response.text}")
+        print("Telegram 리포트 전송 성공!")
 
 if __name__ == "__main__":
     send_telegram()
