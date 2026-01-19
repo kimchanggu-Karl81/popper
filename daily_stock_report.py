@@ -16,17 +16,18 @@ def get_stock_info(ticker):
         curr = data['Close'].iloc[-1]
         prev = data['Close'].iloc[-2]
         change = ((curr - prev) / prev) * 100
-        return f"{curr:,.0f}" if ".KS" in ticker else f"{curr:,.2f}", f"{change:+.2f}%"
+        # 한국 종목(.KS)은 정수, 그 외(미국 등)는 소수점 2자리
+        price_fmt = f"{curr:,.0f}" if ".KS" in ticker else f"{curr:,.2f}"
+        return price_fmt, f"{change:+.2f}%"
     except:
         return "N/A", "0.00%"
 
 def get_realtime_news():
-    """RSS 피드를 활용한 실시간 뉴스 (링크 최적화)"""
+    """RSS 피드 실시간 뉴스"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         url = "https://finance.yahoo.com/rss/topstories"
         response = requests.get(url, headers=headers, timeout=10)
-        
         titles = re.findall(r"<title>(.*?)</title>", response.text)[2:7]
         links = re.findall(r"<link>(.*?)</link>", response.text)[2:7]
         
@@ -35,15 +36,14 @@ def get_realtime_news():
             clean_title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
             clean_title = re.sub(r'[\[\]\*\(\)_]', '', clean_title)
             news_text += f"{i+1}. [{clean_title}]({link})\n"
-        
         return news_text if news_text else "최신 뉴스가 없습니다.\n"
     except:
-        return "⚠️ 뉴스 서비스를 불러올 수 없습니다.\n"
+        return "⚠️ 뉴스 서비스 로딩 실패\n"
 
 def make_report():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     
-    # 1. 지수 정보 (실시간)
+    # 1. 주요 지수
     indices = {"KOSPI": "^KS11", "KOSPI 200": "^KS200", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
     msg = f"📊 *Daily Stocks Briefing ({now})*\n"
     msg += " " + "="*23 + "\n"
@@ -51,7 +51,7 @@ def make_report():
         val, rate = get_stock_info(ticker)
         msg += f"• *{name}*: {val} ({rate})\n"
 
-    # 2. 한국 주요 종목 실시간 수익률 (시각화 로직 개선)
+    # 2. 국내 주요 종목 현황
     msg += "\n🇰🇷 *국내 주요 종목 현황*\n"
     stocks = [
         ("전기전자", "005930.KS", "삼성전자"),
@@ -60,30 +60,31 @@ def make_report():
         ("운수장비", "005380.KS", "현대차"),
         ("화학", "051910.KS", "LG화학")
     ]
-    
     for sector, ticker, name in stocks:
         _, rate = get_stock_info(ticker)
         rate_val = float(rate.replace('%', ''))
-        
-        # 상승/하락에 따른 아이콘 및 막대 논리
-        if rate_val > 0:
-            status_icon = "🔴"  # 상승은 빨간색
-            # 1%당 막대 한 칸 (최대 5칸)
-            fill_count = max(1, min(5, int(rate_val + 0.5)))
-        elif rate_val < 0:
-            status_icon = "🔵"  # 하락은 파란색
-            # 하락폭이 클수록 막대가 더 많이 채워짐
-            fill_count = max(1, min(5, int(abs(rate_val) + 0.5)))
-        else:
-            status_icon = "⚪"  # 보합
-            fill_count = 0
-
-        bar = "■" * fill_count + "□" * (5 - fill_count)
-        msg += f"{status_icon} `{sector:.<5}` {bar} {name}({rate})\n"
+        icon = "🔴" if rate_val > 0 else "🔵" if rate_val < 0 else "⚪"
+        fill = max(1, min(5, int(abs(rate_val) + 0.5))) if rate_val != 0 else 0
+        bar = "■" * fill + "□" * (5 - fill)
+        msg += f"{icon} `{sector:.<5}` {bar} {name}({rate})\n"
 
     # 3. 뉴스 섹션
-    msg += "\n📰 *실시간 주요 경제 뉴스 (클릭)*\n"
+    msg += "\n📰 *실시간 주요 경제 뉴스*\n"
     msg += get_realtime_news()
+
+    # 4. 신규 상장 및 주목 ETF (NEW!)
+    # 상장된 지 얼마 안 된 종목이나 트렌디한 ETF를 여기에 수동으로 업데이트하세요.
+    msg += "\n🚀 *신규 상장 및 주목 ETF*\n"
+    etfs = [
+        ("미국/AI", "NVDX", "Nvidia 2x"),    # 신규 상장/주목 ETF 예시
+        ("미국/반도체", "SOXX", "iShares Semi"),
+        ("한국/배당", "482730.KS", "리얼티인컴"), # 국내 신규 상장 예시
+        ("한국/AI", "471150.KS", "AI반도체")
+    ]
+    for category, ticker, name in etfs:
+        _, rate = get_stock_info(ticker)
+        msg += f"▫️ `{category:.<7}` {name} ({rate})\n"
+
     msg += "\n" + "="*25
     return msg
 
@@ -96,7 +97,6 @@ def send_telegram():
         "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
-    
     res = requests.post(url, json=payload)
     if res.status_code != 200:
         payload["parse_mode"] = ""
