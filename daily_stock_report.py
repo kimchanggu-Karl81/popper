@@ -16,7 +16,6 @@ def get_stock_info(ticker):
         curr = data['Close'].iloc[-1]
         prev = data['Close'].iloc[-2]
         change = ((curr - prev) / prev) * 100
-        
         mark = "▲" if change > 0 else "▼" if change < 0 else ""
         price_fmt = f"{curr:,.0f}" if ".KS" in ticker or ".KQ" in ticker else f"{curr:,.2f}"
         return price_fmt, f"{change:+.2f}%", mark
@@ -24,42 +23,60 @@ def get_stock_info(ticker):
         return "N/A", "0.00%", ""
 
 def get_valuation_data(ticker):
-    """지수 대표 ETF를 통해 PER, PBR 정보 가져오기"""
+    """대표 ETF를 통해 PER, PBR 정보 가져오기"""
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
-        # trailingPE(PER), priceToBook(PBR) 데이터 추출
         per = info.get('trailingPE') or info.get('forwardPE') or "N/A"
         pbr = info.get('priceToBook') or "N/A"
-        
-        per_val = f"{per:.2f}" if isinstance(per, (int, float)) else "N/A"
+        per_val = f"{per:.1f}" if isinstance(per, (int, float)) else "N/A"
         pbr_val = f"{pbr:.2f}" if isinstance(pbr, (int, float)) else "N/A"
         return per_val, pbr_val
     except:
         return "N/A", "N/A"
 
 def get_investment_judgment(name, per, pbr):
-    """역사적 평균 대비 투자 판단 로직"""
+    """시장 지수 및 트렌드 섹터별 맞춤 투자 판단 로직"""
     if per == "N/A" and pbr == "N/A": return "분석불가"
     try:
+        p_v = float(per) if per != "N/A" else 0
+        b_v = float(pbr) if pbr != "N/A" else 0
+
+        # 1. 시장 지수 판단
         if "KOSPI" in name:
-            pbr_v = float(pbr)
-            if pbr_v < 0.9: return "✨ 저평가(분할매수)"
-            elif pbr_v > 1.15: return "⚠️ 고평가(비중축소)"
+            if b_v < 0.9: return "✨ 저평가(분할매수)"
+            elif b_v > 1.15: return "⚠️ 고평가(주의)"
             return "✅ 적정주가"
         elif "S&P 500" in name:
-            per_v = float(per)
-            if per_v < 18: return "✨ 매력적인 가격"
-            elif per_v > 25: return "⚠️ 과열주의"
+            if p_v < 18: return "✨ 매력적 가격"
+            elif p_v > 25: return "⚠️ 과열주의"
             return "✅ 평균수준"
         elif "NASDAQ" in name:
-            per_v = float(per)
-            if per_v < 24: return "✨ 저점구간"
-            elif per_v > 35: return "🔥 거품경계"
+            if p_v < 24: return "✨ 저점구간"
+            elif p_v > 35: return "🔥 거품경계"
             return "✅ 성장진행중"
-        return "데이터 확인 필요"
+
+        # 2. 트렌드 섹터 판단
+        if "반도체" in name:
+            if p_v < 15: return "✨ 업황바닥(매수)"
+            elif p_v > 28: return "🔥 단기과열"
+            return "✅ 호황기진입"
+        elif "2차전지" in name:
+            if p_v < 35: return "✨ 낙폭과대"
+            elif p_v > 75: return "⚠️ 밸류부담"
+            return "✅ 재도약준비"
+        elif "금융" in name:
+            if b_v < 0.45: return "✨ 극심한 저평가"
+            elif b_v > 0.85: return "⚠️ 밸류업 선반영"
+            return "✅ 밸류업 진행중"
+        elif "바이오" in name:
+            if b_v < 3.5: return "✨ 바닥구간"
+            elif b_v > 7.5: return "⚠️ 기대감 과다"
+            return "✅ 모멘텀 유효"
+            
+        return "✅ 적정수준"
     except:
-        return "판단 제외"
+        return "데이터 확인 필요"
 
 def is_us_market_open():
     """미국 증시 휴장 여부 체크"""
@@ -75,7 +92,6 @@ def get_realtime_news():
         response = requests.get(url, headers=headers, timeout=10)
         titles = re.findall(r"<title>(.*?)</title>", response.text)[2:7]
         links = re.findall(r"<link>(.*?)</link>", response.text)[2:7]
-        
         news_text = ""
         for i, (title, link) in enumerate(zip(titles, links)):
             clean_title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
@@ -100,7 +116,7 @@ def make_report():
 
     # 2. 국내 주요 종목
     msg += "\n🇰🇷 *국내 주요 종목 현황*\n"
-    stocks = [("전기전자", "005930.KS", "삼성전자"), ("의약품", "207940.KS", "삼성바이오"), ("금융", "055550.KS", "신한지주"), ("운수장비", "005380.KS", "현대차"), ("화학", "051910.KS", "LG학")]
+    stocks = [("전기전자", "005930.KS", "삼성전자"), ("의약품", "207940.KS", "삼성바이오"), ("금융", "055550.KS", "신한지주"), ("운수장비", "005380.KS", "현대차"), ("화학", "051910.KS", "LG화학")]
     for sector, ticker, name in stocks:
         _, rate, _ = get_stock_info(ticker)
         rate_val = float(rate.replace('%', ''))
@@ -120,12 +136,15 @@ def make_report():
         _, rate, mark = get_stock_info(ticker)
         msg += f"▫️ `{category:.<7}` {name} *({mark}{rate})*\n"
 
-    # 5. 시장 밸류에이션 및 투자 판단 (NEW!)
-    msg += "\n💎 *시장 밸류에이션 분석*\n"
+    # 5. 시장 & 트렌드 밸류에이션 분석 (핵심 추가)
+    msg += "\n💎 *섹터별 밸류에이션 및 투자판단*\n"
     valuations = [
         ("KOSPI 200", "069500.KS"),
         ("S&P 500", "SPY"),
-        ("NASDAQ 100", "QQQ")
+        ("AI반도체", "471150.KS"),
+        ("2차전지", "379810.KS"),
+        ("금융/밸류업", "091170.KS"),
+        ("바이오", "293180.KS")
     ]
     for name, ticker in valuations:
         per, pbr = get_valuation_data(ticker)
