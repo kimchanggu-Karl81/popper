@@ -23,11 +23,48 @@ def get_stock_info(ticker):
     except:
         return "N/A", "0.00%", ""
 
+def get_valuation_data(ticker):
+    """지수 대표 ETF를 통해 PER, PBR 정보 가져오기"""
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        # trailingPE(PER), priceToBook(PBR) 데이터 추출
+        per = info.get('trailingPE') or info.get('forwardPE') or "N/A"
+        pbr = info.get('priceToBook') or "N/A"
+        
+        per_val = f"{per:.2f}" if isinstance(per, (int, float)) else "N/A"
+        pbr_val = f"{pbr:.2f}" if isinstance(pbr, (int, float)) else "N/A"
+        return per_val, pbr_val
+    except:
+        return "N/A", "N/A"
+
+def get_investment_judgment(name, per, pbr):
+    """역사적 평균 대비 투자 판단 로직"""
+    if per == "N/A" and pbr == "N/A": return "분석불가"
+    try:
+        if "KOSPI" in name:
+            pbr_v = float(pbr)
+            if pbr_v < 0.9: return "✨ 저평가(분할매수)"
+            elif pbr_v > 1.15: return "⚠️ 고평가(비중축소)"
+            return "✅ 적정주가"
+        elif "S&P 500" in name:
+            per_v = float(per)
+            if per_v < 18: return "✨ 매력적인 가격"
+            elif per_v > 25: return "⚠️ 과열주의"
+            return "✅ 평균수준"
+        elif "NASDAQ" in name:
+            per_v = float(per)
+            if per_v < 24: return "✨ 저점구간"
+            elif per_v > 35: return "🔥 거품경계"
+            return "✅ 성장진행중"
+        return "데이터 확인 필요"
+    except:
+        return "판단 제외"
+
 def is_us_market_open():
-    """미국 증시 휴장 여부 체크 (MLK Day 등)"""
-    # 2026-01-19는 마틴 루터 킹 주니어 날로 휴장
+    """미국 증시 휴장 여부 체크"""
     today = datetime.now().strftime('%Y-%m-%d')
-    holidays = ['2026-01-19', '2026-02-16', '2026-04-03'] # 주요 휴장일 예시
+    holidays = ['2026-01-19', '2026-02-16', '2026-04-03']
     return "🇺🇸 [미국 증시 휴장]" if today in holidays else ""
 
 def get_realtime_news():
@@ -52,32 +89,18 @@ def make_report():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     us_status = is_us_market_open()
     
-    # 1. 주요 지수 (KOSDAQ 추가)
-    indices = {
-        "KOSPI": "^KS11", 
-        "KOSPI 200": "^KS200", 
-        "KOSDAQ": "^KQ11", 
-        "S&P 500": "^GSPC", 
-        "NASDAQ": "^IXIC"
-    }
-    
+    # 1. 주요 지수
+    indices = {"KOSPI": "^KS11", "KOSPI 200": "^KS200", "KOSDAQ": "^KQ11", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
     msg = f"📊 *Daily Stocks Briefing ({now})*\n"
     if us_status: msg += f" {us_status}\n"
     msg += " " + "="*23 + "\n"
-    
     for name, ticker in indices.items():
         val, rate, mark = get_stock_info(ticker)
         msg += f"• *{name:.<10}*: {val} ({mark}{rate})\n"
 
-    # 2. 국내 주요 종목 현황
+    # 2. 국내 주요 종목
     msg += "\n🇰🇷 *국내 주요 종목 현황*\n"
-    stocks = [
-        ("전기전자", "005930.KS", "삼성전자"),
-        ("의약품", "207940.KS", "삼성바이오"),
-        ("금융", "055550.KS", "신한지주"),
-        ("운수장비", "005380.KS", "현대차"),
-        ("화학", "051910.KS", "LG화학")
-    ]
+    stocks = [("전기전자", "005930.KS", "삼성전자"), ("의약품", "207940.KS", "삼성바이오"), ("금융", "055550.KS", "신한지주"), ("운수장비", "005380.KS", "현대차"), ("화학", "051910.KS", "LG학")]
     for sector, ticker, name in stocks:
         _, rate, _ = get_stock_info(ticker)
         rate_val = float(rate.replace('%', ''))
@@ -86,22 +109,28 @@ def make_report():
         bar = "■" * fill + "□" * (5 - fill)
         msg += f"{icon} `{sector:.<5}` {bar} {name}({rate})\n"
 
-    # 3. 뉴스 섹션
+    # 3. 뉴스
     msg += "\n📰 *실시간 주요 경제 뉴스*\n"
     msg += get_realtime_news()
 
-    # 4. 신규 상장 및 주목 ETF (디테일 강화)
+    # 4. ETF 섹션
     msg += "\n🚀 *신규 상장 및 주목 ETF*\n"
-    etfs = [
-        ("미국/AI", "NVDX", "Nvidia 2x"),
-        ("미국/반도체", "SOXX", "iShares Semi"),
-        ("한국/배당", "482730.KS", "리얼티인컴"),
-        ("한국/AI", "471150.KS", "AI반도체")
-    ]
+    etfs = [("미국/AI", "NVDX", "Nvidia 2x"), ("미국/반도체", "SOXX", "iShares Semi"), ("한국/배당", "482730.KS", "리얼티인컴"), ("한국/AI", "471150.KS", "AI반도체")]
     for category, ticker, name in etfs:
         _, rate, mark = get_stock_info(ticker)
-        # ETF는 볼드체로 강조하여 가독성 업그레이드
         msg += f"▫️ `{category:.<7}` {name} *({mark}{rate})*\n"
+
+    # 5. 시장 밸류에이션 및 투자 판단 (NEW!)
+    msg += "\n💎 *시장 밸류에이션 분석*\n"
+    valuations = [
+        ("KOSPI 200", "069500.KS"),
+        ("S&P 500", "SPY"),
+        ("NASDAQ 100", "QQQ")
+    ]
+    for name, ticker in valuations:
+        per, pbr = get_valuation_data(ticker)
+        judgment = get_investment_judgment(name, per, pbr)
+        msg += f"▫️ *{name}*\n   P/E: {per} | P/B: {pbr}\n   💡 {judgment}\n"
 
     msg += "\n" + "="*25
     return msg
@@ -109,12 +138,7 @@ def make_report():
 def send_telegram():
     report_text = make_report()
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": report_text,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True
-    }
+    payload = {"chat_id": CHAT_ID, "text": report_text, "parse_mode": "Markdown", "disable_web_page_preview": True}
     requests.post(url, json=payload)
 
 if __name__ == "__main__":
