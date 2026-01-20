@@ -36,13 +36,13 @@ def get_valuation_data(ticker):
         return "N/A", "N/A"
 
 def get_investment_judgment(name, per, pbr):
-    """시장 지수 및 트렌드 섹터별 맞춤 투자 판단 로직"""
+    """지수 및 섹터별 맞춤 투자 판단 로직"""
     if per == "N/A" and pbr == "N/A": return "분석불가"
     try:
         p_v = float(per) if per != "N/A" else 0
         b_v = float(pbr) if pbr != "N/A" else 0
 
-        # 1. 시장 지수 판단
+        # 1. 주요 지수 판단 기준
         if "KOSPI" in name:
             if b_v < 0.9: return "✨ 저평가(분할매수)"
             elif b_v > 1.15: return "⚠️ 고평가(주의)"
@@ -56,7 +56,7 @@ def get_investment_judgment(name, per, pbr):
             elif p_v > 35: return "🔥 거품경계"
             return "✅ 성장진행중"
 
-        # 2. 트렌드 섹터 판단
+        # 2. 업종별 판단 기준
         if "반도체" in name:
             if p_v < 15: return "✨ 업황바닥(매수)"
             elif p_v > 28: return "🔥 단기과열"
@@ -105,7 +105,7 @@ def make_report():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     us_status = is_us_market_open()
     
-    # 1. 주요 지수
+    # 1. 지수 정보
     indices = {"KOSPI": "^KS11", "KOSPI 200": "^KS200", "KOSDAQ": "^KQ11", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
     msg = f"📊 *Daily Stocks Briefing ({now})*\n"
     if us_status: msg += f" {us_status}\n"
@@ -125,7 +125,7 @@ def make_report():
         bar = "■" * fill + "□" * (5 - fill)
         msg += f"{icon} `{sector:.<5}` {bar} {name}({rate})\n"
 
-    # 3. 뉴스
+    # 3. 뉴스 섹션
     msg += "\n📰 *실시간 주요 경제 뉴스*\n"
     msg += get_realtime_news()
 
@@ -136,11 +136,12 @@ def make_report():
         _, rate, mark = get_stock_info(ticker)
         msg += f"▫️ `{category:.<7}` {name} *({mark}{rate})*\n"
 
-    # 5. 시장 & 트렌드 밸류에이션 분석 (핵심 추가)
+    # 5. 시장 & 트렌드 밸류에이션 분석 (NASDAQ 100 포함)
     msg += "\n💎 *섹터별 밸류에이션 및 투자판단*\n"
     valuations = [
         ("KOSPI 200", "069500.KS"),
         ("S&P 500", "SPY"),
+        ("NASDAQ 100", "QQQ"),     # 나스닥 추가 완료
         ("AI반도체", "471150.KS"),
         ("2차전지", "379810.KS"),
         ("금융/밸류업", "091170.KS"),
