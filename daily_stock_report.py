@@ -23,48 +23,50 @@ def get_stock_info(ticker):
     except:
         return "N/A", "0.00%", ""
 
-def get_visual_trends():
-    """뉴스 분석 후 키워드별 언급 횟수를 막대그래프로 시각화 (상위 15개)"""
+def get_trend_cloud():
+    """뉴스 분석 후 키워드를 해시태그 형태로 빼곡하게 나열 (상위 20-30개)"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        # 다각화된 분석을 위해 주요 경제 뉴스 피드 2곳 활용
-        urls = ["https://finance.yahoo.com/rss/topstories", "https://finance.yahoo.com/rss/stocks"]
+        # 데이터 양을 확보하기 위해 여러 섹션의 뉴스 피드 활용
+        urls = [
+            "https://finance.yahoo.com/rss/topstories",
+            "https://finance.yahoo.com/rss/stocks",
+            "https://finance.yahoo.com/rss/crypto"
+        ]
         
-        all_titles = []
+        all_text = ""
         for url in urls:
             response = requests.get(url, headers=headers, timeout=10)
             titles = re.findall(r"<title>(.*?)</title>", response.text)[2:]
-            all_titles.extend(titles)
-            
-        full_text = " ".join(all_titles).upper()
-        # 4글자 이상의 영문 대문자 단어만 추출
-        words = re.findall(r'\b[A-Z]{4,}\b', full_text)
+            all_text += " ".join(titles).upper()
         
-        # 금융 뉴스용 불용어 필터링
+        # 3글자 이상의 영문 대문자 단어 추출
+        words = re.findall(r'\b[A-Z]{3,}\b', all_text)
+        
+        # 불용어 리스트 (금융 뉴스에서 의미 없는 단어들 제거)
         stopwords = {
-            'THE', 'AND', 'FOR', 'STOCKS', 'MARKET', 'WITH', 'FROM', 'THIS', 'STOCK', 
-            'WILL', 'ARE', 'SAYS', 'REPORT', 'YEAR', 'TIME', 'ABOUT', 'AFTER', 'COULD',
-            'FIRST', 'MORE', 'INTO', 'THEIR', 'WHAT', 'THESE', 'WHICH'
+            'THE', 'AND', 'FOR', 'WITH', 'FROM', 'THIS', 'WILL', 'ARE', 'SAYS', 'REPORT', 
+            'YEAR', 'TIME', 'ABOUT', 'AFTER', 'COULD', 'FIRST', 'MORE', 'INTO', 'THEIR', 
+            'WHAT', 'THESE', 'WHICH', 'STOCKS', 'MARKET', 'STOCK', 'PRICE', 'INDEX'
         }
         filtered_words = [w for w in words if w not in stopwords]
         
-        # 상위 15개 키워드 추출
-        counts = Counter(filtered_words).most_common(15)
-        if not counts: return "🔍 데이터가 부족하여 트렌드를 분석할 수 없습니다."
+        # 상위 25개 키워드 추출
+        counts = Counter(filtered_words).most_common(25)
+        if not counts: return "🔍 트렌드 분석 불가"
 
-        max_count = counts[0][1]
-        trend_msg = ""
+        # 해시태그 형태로 나열 (신문 1면 느낌)
+        trend_cloud = " ".join([f"#{word}" for word, count in counts])
         
-        for word, count in counts:
-            # 언급 빈도에 따라 최대 8칸의 막대 생성
-            bar_len = int((count / max_count) * 8)
-            bar = "■" * bar_len + "□" * (8 - bar_len)
-            # 가독성을 위해 키워드 길이를 12자로 고정하여 정렬
-            trend_msg += f"`{word:.<12}` {bar} ({count})\n"
+        # 시각적 가독성을 위해 적절히 줄바꿈 처리
+        wrapped_cloud = ""
+        words_list = trend_cloud.split()
+        for i in range(0, len(words_list), 4):  # 한 줄에 약 4-5개씩 배치
+            wrapped_cloud += "  ".join(words_list[i:i+4]) + "\n"
             
-        return trend_msg
+        return wrapped_cloud
     except:
-        return "⚠️ 트렌드 분석 중 오류가 발생했습니다."
+        return "⚠️ 트렌드 분석 실패"
 
 def is_us_market_open():
     """미국 증시 휴장 여부 체크"""
@@ -102,13 +104,8 @@ def make_report():
         val, rate, mark = get_stock_info(ticker)
         msg += f"• *{name:.<10}*: {val} ({mark}{rate})\n"
 
-    # 2. 🔥 실시간 시장 핫 트렌드 (15개 키워드 시각화)
-    # 기존 밸류에이션 분석 섹션을 대체합니다.
-    msg += "\n🔥 *실시간 주요 키워드 언급 빈도*\n"
-    msg += get_visual_trends()
-
-    # 3. 국내 주요 종목
-    msg += "\n🇰🇷 *국내 주요 종목 현황*\n"
+    # 2. 국내 주요 종목
+    msg += "🇰🇷 *국내 주요 종목 현황*\n"
     stocks = [("전기전자", "005930.KS", "삼성전자"), ("의약품", "207940.KS", "삼성바이오"), ("금융", "055550.KS", "신한지주"), ("운수장비", "005380.KS", "현대차"), ("화학", "051910.KS", "LG화학")]
     for sector, ticker, name in stocks:
         _, rate, _ = get_stock_info(ticker)
@@ -118,6 +115,10 @@ def make_report():
         bar = "■" * fill + "□" * (5 - fill)
         msg += f"{icon} `{sector:.<5}` {bar} {name}({rate})\n"
 
+    # 3. 🔥 실시간 시장 핫 트렌드 (Cloud Style)
+    msg += "\n🔥 *NEWS TREND HOT KEYWORDS*\n"
+    msg += f"```\n{get_trend_cloud()}```\n"
+    
     # 4. 뉴스 섹션
     msg += "\n📰 *실시간 주요 경제 뉴스*\n"
     msg += get_realtime_news()
