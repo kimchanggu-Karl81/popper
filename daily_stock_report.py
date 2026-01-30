@@ -3,13 +3,13 @@ import requests
 import os
 from datetime import datetime
 import re
+from collections import Counter
 
 # 환경 변수 (GitHub Secrets)
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def get_stock_info(ticker):
-    """현재가와 변동률 가져오기 및 기호(▲/▼) 적용"""
     try:
         data = yf.Ticker(ticker).history(period="2d")
         if len(data) < 2: return "N/A", "0.00%", ""
@@ -22,70 +22,42 @@ def get_stock_info(ticker):
     except:
         return "N/A", "0.00%", ""
 
-def get_valuation_data(ticker):
-    """대표 ETF를 통해 PER, PBR 정보 가져오기"""
+def get_visual_trends():
+    """뉴스 분석 후 키워드별 언급 횟수를 막대그래프로 변환"""
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        per = info.get('trailingPE') or info.get('forwardPE') or "N/A"
-        pbr = info.get('priceToBook') or "N/A"
-        per_val = f"{per:.1f}" if isinstance(per, (int, float)) else "N/A"
-        pbr_val = f"{pbr:.2f}" if isinstance(pbr, (int, float)) else "N/A"
-        return per_val, pbr_val
-    except:
-        return "N/A", "N/A"
-
-def get_investment_judgment(name, per, pbr):
-    """지수 및 섹터별 맞춤 투자 판단 로직"""
-    if per == "N/A" and pbr == "N/A": return "분석불가"
-    try:
-        p_v = float(per) if per != "N/A" else 0
-        b_v = float(pbr) if pbr != "N/A" else 0
-
-        # 1. 주요 지수 판단 기준
-        if "KOSPI" in name:
-            if b_v < 0.9: return "✨ 저평가(분할매수)"
-            elif b_v > 1.15: return "⚠️ 고평가(주의)"
-            return "✅ 적정주가"
-        elif "S&P 500" in name:
-            if p_v < 18: return "✨ 매력적 가격"
-            elif p_v > 25: return "⚠️ 과열주의"
-            return "✅ 평균수준"
-        elif "NASDAQ" in name:
-            if p_v < 24: return "✨ 저점구간"
-            elif p_v > 35: return "🔥 거품경계"
-            return "✅ 성장진행중"
-
-        # 2. 업종별 판단 기준
-        if "반도체" in name:
-            if p_v < 15: return "✨ 업황바닥(매수)"
-            elif p_v > 28: return "🔥 단기과열"
-            return "✅ 호황기진입"
-        elif "2차전지" in name:
-            if p_v < 35: return "✨ 낙폭과대"
-            elif p_v > 75: return "⚠️ 밸류부담"
-            return "✅ 재도약준비"
-        elif "금융" in name:
-            if b_v < 0.45: return "✨ 극심한 저평가"
-            elif b_v > 0.85: return "⚠️ 밸류업 선반영"
-            return "✅ 밸류업 진행중"
-        elif "바이오" in name:
-            if b_v < 3.5: return "✨ 바닥구간"
-            elif b_v > 7.5: return "⚠️ 기대감 과다"
-            return "✅ 모멘텀 유효"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        urls = ["https://finance.yahoo.com/rss/topstories", "https://finance.yahoo.com/rss/stocks"]
+        
+        all_titles = []
+        for url in urls:
+            response = requests.get(url, headers=headers, timeout=10)
+            titles = re.findall(r"<title>(.*?)</title>", response.text)[2:]
+            all_titles.extend(titles)
             
-        return "✅ 적정수준"
-    except:
-        return "데이터 확인 필요"
+        full_text = " ".join(all_titles).upper()
+        words = re.findall(r'\b[A-Z]{4,}\b', full_text)
+        
+        stopwords = {'THE', 'AND', 'FOR', 'STOCKS', 'MARKET', 'WITH', 'FROM', 'THIS', 'STOCK', 'WILL', 'ARE', 'SAYS', 'REPORT', 'YEAR', 'TIME', 'ABOUT', 'AFTER'}
+        filtered_words = [w for w in words if w not in stopwords]
+        
+        counts = Counter(filtered_words).most_common(10)
+        if not counts: return "🔍 트렌드 데이터 없음"
 
-def is_us_market_open():
-    """미국 증시 휴장 여부 체크"""
-    today = datetime.now().strftime('%Y-%m-%d')
-    holidays = ['2026-01-19', '2026-02-16', '2026-04-03']
-    return "🇺🇸 [미국 증시 휴장]" if today in holidays else ""
+        # 시각화 로직: 가장 많이 언급된 단어를 기준으로 비율 계산
+        max_count = counts[0][1]
+        trend_msg = ""
+        
+        for word, count in counts:
+            # 언급 횟수에 따른 막대 생성 (최대 8칸)
+            bar_len = int((count / max_count) * 8)
+            bar = "■" * bar_len + "□" * (8 - bar_len)
+            trend_msg += f"`{word:.<12}` {bar} ({count}회)\n"
+            
+        return trend_msg
+    except:
+        return "⚠️ 트렌드 분석 중 오류 발생"
 
 def get_realtime_news():
-    """RSS 피드 실시간 뉴스"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         url = "https://finance.yahoo.com/rss/topstories"
@@ -95,63 +67,37 @@ def get_realtime_news():
         news_text = ""
         for i, (title, link) in enumerate(zip(titles, links)):
             clean_title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
-            clean_title = re.sub(r'[\[\]\*\(\)_]', '', clean_title)
-            news_text += f"{i+1}. [{clean_title}]({link})\n"
+            news_text += f"{i+1}. [{clean_title[:45]}...]({link})\n"
         return news_text
     except:
         return "⚠️ 뉴스 로딩 실패\n"
 
 def make_report():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
-    us_status = is_us_market_open()
-    
-    # 1. 지수 정보
-    indices = {"KOSPI": "^KS11", "KOSPI 200": "^KS200", "KOSDAQ": "^KQ11", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
-    msg = f"📊 *Daily Stocks Briefing ({now})*\n"
-    if us_status: msg += f" {us_status}\n"
+    msg = f"📊 *Market Trend Briefing ({now})*\n"
     msg += " " + "="*23 + "\n"
+    
+    # 1. 주요 지수
+    indices = {"KOSPI": "^KS11", "NASDAQ": "^IXIC", "S&P 500": "^GSPC"}
     for name, ticker in indices.items():
         val, rate, mark = get_stock_info(ticker)
-        msg += f"• *{name:.<10}*: {val} ({mark}{rate})\n"
+        msg += f"• *{name:.<9}*: {val} ({mark}{rate})\n"
 
-    # 2. 국내 주요 종목
-    msg += "\n🇰🇷 *국내 주요 종목 현황*\n"
-    stocks = [("전기전자", "005930.KS", "삼성전자"), ("의약품", "207940.KS", "삼성바이오"), ("금융", "055550.KS", "신한지주"), ("운수장비", "005380.KS", "현대차"), ("화학", "051910.KS", "LG화학")]
+    # 2. 🔥 실시간 트렌드 막대그래프 (NEW)
+    msg += "\n🔥 *실시간 키워드 언급 빈도*\n"
+    msg += get_visual_trends()
+
+    # 3. 국내 주요 종목
+    msg += "\n🇰🇷 *국내 주요 종목*\n"
+    stocks = [("반도체", "005930.KS", "삼성전자"), ("자동차", "005380.KS", "현대차"), ("금융", "055550.KS", "신한지주")]
     for sector, ticker, name in stocks:
         _, rate, _ = get_stock_info(ticker)
-        rate_val = float(rate.replace('%', ''))
-        icon = "🔴" if rate_val > 0 else "🔵" if rate_val < 0 else "⚪"
-        fill = max(1, min(5, int(abs(rate_val) + 0.5))) if rate_val != 0 else 0
-        bar = "■" * fill + "□" * (5 - fill)
-        msg += f"{icon} `{sector:.<5}` {bar} {name}({rate})\n"
+        icon = "🔴" if "+" in rate and rate != "0.00%" else "🔵" if "-" in rate else "⚪"
+        msg += f"{icon} {name}({rate})\n"
 
-    # 3. 뉴스 섹션
-    msg += "\n📰 *실시간 주요 경제 뉴스*\n"
-    msg += get_realtime_news()
-
-    # 4. ETF 섹션
-    msg += "\n🚀 *신규 상장 및 주목 ETF*\n"
-    etfs = [("미국/AI", "NVDX", "Nvidia 2x"), ("미국/반도체", "SOXX", "iShares Semi"), ("한국/배당", "482730.KS", "리얼티인컴"), ("한국/AI", "471150.KS", "AI반도체")]
-    for category, ticker, name in etfs:
-        _, rate, mark = get_stock_info(ticker)
-        msg += f"▫️ `{category:.<7}` {name} *({mark}{rate})*\n"
-
-    # 5. 시장 & 트렌드 밸류에이션 분석 (NASDAQ 100 포함)
-    msg += "\n💎 *섹터별 밸류에이션 및 투자판단*\n"
-    valuations = [
-        ("KOSPI 200", "069500.KS"),
-        ("S&P 500", "SPY"),
-        ("NASDAQ 100", "QQQ"),     # 나스닥 추가 완료
-        ("AI반도체", "471150.KS"),
-        ("2차전지", "379810.KS"),
-        ("금융/밸류업", "091170.KS"),
-        ("바이오", "293180.KS")
-    ]
-    for name, ticker in valuations:
-        per, pbr = get_valuation_data(ticker)
-        judgment = get_investment_judgment(name, per, pbr)
-        msg += f"▫️ *{name}*\n   P/E: {per} | P/B: {pbr}\n   💡 {judgment}\n"
-
+    # 4. 실시간 뉴스 요약
+    msg += "\n📰 *실시간 주요 경제 뉴스*\n" + get_realtime_news()
+    
     msg += "\n" + "="*25
     return msg
 
