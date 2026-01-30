@@ -10,7 +10,6 @@ TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def get_stock_info(ticker):
-    """현재가와 변동률 가져오기 및 기호(▲/▼) 적용"""
     try:
         data = yf.Ticker(ticker).history(period="2d")
         if len(data) < 2: return "N/A", "0.00%", ""
@@ -23,112 +22,90 @@ def get_stock_info(ticker):
     except:
         return "N/A", "0.00%", ""
 
-def get_trend_cloud():
-    """뉴스 분석 후 키워드를 해시태그 형태로 빼곡하게 나열 (상위 20-30개)"""
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        # 데이터 양을 확보하기 위해 여러 섹션의 뉴스 피드 활용
-        urls = [
-            "https://finance.yahoo.com/rss/topstories",
-            "https://finance.yahoo.com/rss/stocks",
-            "https://finance.yahoo.com/rss/crypto"
-        ]
-        
-        all_text = ""
-        for url in urls:
-            response = requests.get(url, headers=headers, timeout=10)
-            titles = re.findall(r"<title>(.*?)</title>", response.text)[2:]
-            all_text += " ".join(titles).upper()
-        
-        # 3글자 이상의 영문 대문자 단어 추출
-        words = re.findall(r'\b[A-Z]{3,}\b', all_text)
-        
-        # 불용어 리스트 (금융 뉴스에서 의미 없는 단어들 제거)
-        stopwords = {
-            'THE', 'AND', 'FOR', 'WITH', 'FROM', 'THIS', 'WILL', 'ARE', 'SAYS', 'REPORT', 
-            'YEAR', 'TIME', 'ABOUT', 'AFTER', 'COULD', 'FIRST', 'MORE', 'INTO', 'THEIR', 
-            'WHAT', 'THESE', 'WHICH', 'STOCKS', 'MARKET', 'STOCK', 'PRICE', 'INDEX'
-        }
-        filtered_words = [w for w in words if w not in stopwords]
-        
-        # 상위 25개 키워드 추출
-        counts = Counter(filtered_words).most_common(25)
-        if not counts: return "🔍 트렌드 분석 불가"
-
-        # 해시태그 형태로 나열 (신문 1면 느낌)
-        trend_cloud = " ".join([f"#{word}" for word, count in counts])
-        
-        # 시각적 가독성을 위해 적절히 줄바꿈 처리
-        wrapped_cloud = ""
-        words_list = trend_cloud.split()
-        for i in range(0, len(words_list), 4):  # 한 줄에 약 4-5개씩 배치
-            wrapped_cloud += "  ".join(words_list[i:i+4]) + "\n"
-            
-        return wrapped_cloud
-    except:
-        return "⚠️ 트렌드 분석 실패"
-
-def is_us_market_open():
-    """미국 증시 휴장 여부 체크"""
-    today = datetime.now().strftime('%Y-%m-%d')
-    holidays = ['2026-01-19', '2026-02-16', '2026-04-03']
-    return "🇺🇸 [미국 증시 휴장]" if today in holidays else ""
-
-def get_realtime_news():
-    """RSS 피드 실시간 뉴스"""
+def get_market_topics():
+    """뉴스 제목의 구조를 분석하여 주요 시장 이슈(주제)를 추출"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         url = "https://finance.yahoo.com/rss/topstories"
         response = requests.get(url, headers=headers, timeout=10)
-        titles = re.findall(r"<title>(.*?)</title>", response.text)[2:7]
-        links = re.findall(r"<link>(.*?)</link>", response.text)[2:7]
+        
+        # 뉴스 제목 수집
+        titles = re.findall(r"<title>(.*?)</title>", response.text)[2:15]
+        
+        # 핵심 주체(Entity)와 상황(Action) 리스트
+        entities = ['FED', 'APPLE', 'NVIDIA', 'BITCOIN', 'STOCKS', 'TESLA', 'INFLATION', 'RATES', 'MARKET', 'TECH', 'AI', 'OIL', 'GOLD']
+        actions = ['RISE', 'FALL', 'SURGE', 'JUMP', 'PAUSE', 'CUT', 'CRASH', 'EARNINGS', 'GROWTH', 'DEAL', 'SETTLE', 'HIKE']
+        
+        topics = []
+        for title in titles:
+            upper_title = title.upper()
+            # 제목에서 핵심 단어 2개 이상 조합 추출
+            found_entities = [e for e in entities if e in upper_title]
+            found_actions = [a for a in actions if a in upper_title]
+            
+            if found_entities:
+                main_topic = found_entities[0]
+                context = found_actions[0] if found_actions else "TRENDING"
+                topics.append(f"#{main_topic}_{context}")
+        
+        # 중복 제거 및 상위 주제 선정
+        unique_topics = list(dict.fromkeys(topics))[:10]
+        
+        if not unique_topics:
+            return "🔍 현재 시장을 주도하는 특정 대형 이슈 없음"
+            
+        return "  ".join(unique_topics)
+    except:
+        return "⚠️ 주제 분석 데이터 로딩 실패"
+
+def get_realtime_news():
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        url = "https://finance.yahoo.com/rss/topstories"
+        response = requests.get(url, headers=headers, timeout=10)
+        titles = re.findall(r"<title>(.*?)</title>", response.text)[2:8]
+        links = re.findall(r"<link>(.*?)</link>", response.text)[2:8]
         news_text = ""
         for i, (title, link) in enumerate(zip(titles, links)):
             clean_title = title.replace("<![CDATA[", "").replace("]]>", "").strip()
-            clean_title = re.sub(r'[\[\]\*\(\)_]', '', clean_title)
-            news_text += f"{i+1}. [{clean_title}]({link})\n"
+            news_text += f"{i+1}. {clean_title}\n   [기사원문]({link})\n"
         return news_text
     except:
         return "⚠️ 뉴스 로딩 실패\n"
 
 def make_report():
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
-    us_status = is_us_market_open()
     
-    # 1. 지수 정보
-    indices = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11", "S&P 500": "^GSPC", "NASDAQ": "^IXIC"}
-    msg = f"📊 *Daily Stocks Briefing ({now})*\n"
-    if us_status: msg += f" {us_status}\n"
+    msg = f"📊 *Smart Market Report ({now})*\n"
     msg += " " + "="*23 + "\n"
+    
+    # 1. 지수 요약
+    indices = {"KOSPI": "^KS11", "NASDAQ": "^IXIC", "S&P 500": "^GSPC"}
     for name, ticker in indices.items():
         val, rate, mark = get_stock_info(ticker)
-        msg += f"• *{name:.<10}*: {val} ({mark}{rate})\n"
+        msg += f"• *{name:.<9}*: {val} ({mark}{rate})\n"
 
     # 2. 국내 주요 종목
-    msg += "🇰🇷 *국내 주요 종목 현황*\n"
-    stocks = [("전기전자", "005930.KS", "삼성전자"), ("의약품", "207940.KS", "삼성바이오"), ("금융", "055550.KS", "신한지주"), ("운수장비", "005380.KS", "현대차"), ("화학", "051910.KS", "LG화학")]
+    msg += "\n🇰🇷 *국내 주요 종목*\n"
+    stocks = [("전기전자", "005930.KS", "삼성전자"), ("금융", "055550.KS", "신한지주"), ("자동차", "005380.KS", "현대차")]
     for sector, ticker, name in stocks:
         _, rate, _ = get_stock_info(ticker)
-        rate_val = float(rate.replace('%', ''))
-        icon = "🔴" if rate_val > 0 else "🔵" if rate_val < 0 else "⚪"
-        fill = max(1, min(5, int(abs(rate_val) + 0.5))) if rate_val != 0 else 0
-        bar = "■" * fill + "□" * (5 - fill)
-        msg += f"{icon} `{sector:.<5}` {bar} {name}({rate})\n"
+        icon = "🔴" if "+" in rate and rate != "0.00%" else "🔵" if "-" in rate else "⚪"
+        msg += f"{icon} {name} ({rate})\n"
 
-    # 3. 🔥 실시간 시장 핫 트렌드 (Cloud Style)
-    msg += "\n🔥 *NEWS TREND HOT KEYWORDS*\n"
-    msg += f"```\n{get_trend_cloud()}```\n"
+    # 3. 🔥 시장 주도 이슈 (단어가 아닌 주제 중심)
+    msg += "\n🗣️ *WHAT PEOPLE ARE TALKING ABOUT*\n"
+    msg += f"_{get_market_topics()}_\n"
     
-    # 4. 뉴스 섹션
-    msg += "\n📰 *실시간 주요 경제 뉴스*\n"
+    # 4. 실시간 뉴스 요약 (제목 + 링크 구조)
+    msg += "\n📰 *최신 헤드라인 요약*\n"
     msg += get_realtime_news()
-
-    # 5. ETF 섹션
-    msg += "\n🚀 *신규 상장 및 주목 ETF*\n"
-    etfs = [("미국/AI", "NVDX", "Nvidia 2x"), ("미국/반도체", "SOXX", "iShares Semi"), ("한국/배당", "482730.KS", "리얼티인컴"), ("한국/AI", "471150.KS", "AI반도체")]
+    
+    msg += "\n🚀 *주목 ETF*\n"
+    etfs = [("미국AI", "NVDX", "Nvidia 2x"), ("한국AI", "471150.KS", "AI반도체")]
     for category, ticker, name in etfs:
         _, rate, mark = get_stock_info(ticker)
-        msg += f"▫️ `{category:.<7}` {name} *({mark}{rate})*\n"
+        msg += f"▫️ `{category:.<5}` {name} ({mark}{rate})\n"
 
     msg += "\n" + "="*25
     return msg
