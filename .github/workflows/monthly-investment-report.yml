@@ -1,0 +1,115 @@
+name: Monthly Investment Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_month:
+        description: "보고서 대상 월 (예: 2026-04)"
+        required: true
+        type: string
+      mode:
+        description: "draft 또는 final"
+        required: true
+        default: "draft"
+        type: choice
+        options:
+          - draft
+          - final
+      environment_name:
+        description: "실행 환경"
+        required: true
+        default: "monthly-report-dev"
+        type: choice
+        options:
+          - monthly-report-dev
+          - monthly-report-prod
+
+  schedule:
+    - cron: "0 0 1 * *"   # 매월 1일 09:00 KST (UTC 00:00)
+
+concurrency:
+  group: monthly-investment-report-${{ github.event.inputs.report_month || 'scheduled' }}-${{ github.event.inputs.mode || 'draft' }}
+  cancel-in-progress: false
+
+jobs:
+  build-report:
+    name: Build monthly investment report
+    runs-on: [self-hosted, windows, x64, monthly-report]
+    environment: ${{ github.event.inputs.environment_name || 'monthly-report-dev' }}
+
+    permissions:
+      contents: read
+      actions: read
+
+    env:
+      PYTHONUNBUFFERED: "1"
+      REPORT_MONTH: ${{ github.event.inputs.report_month || '' }}
+      REPORT_MODE: ${{ github.event.inputs.mode || 'draft' }}
+      OUTPUT_ROOT: data/output/monthly-report
+      OPENAI_API_KEY: ${{ secrets.MONTHLY_REPORT_OPENAI_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Show runner info
+        shell: powershell
+        run: |
+          Write-Host "Runner: $env:RUNNER_NAME"
+          Write-Host "OS: $env:RUNNER_OS"
+          Write-Host "Arch: $env:RUNNER_ARCH"
+          python --version
+          pip --version
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set report month for scheduled run
+        shell: powershell
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:REPORT_MONTH)) {
+            $kst = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId((Get-Date), "Korea Standard Time")
+            $reportMonth = $kst.ToString("yyyy-MM")
+            "REPORT_MONTH=$reportMonth" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Scheduled run detected. REPORT_MONTH set to $reportMonth"
+          } else {
+            Write-Host "Manual run detected. REPORT_MONTH=$env:REPORT_MONTH"
+          }
+
+      - name: Set output path
+        shell: powershell
+        run: |
+          $outputRoot = "data/output/monthly-report/$env:REPORT_MONTH"
+          "OUTPUT_ROOT=$outputRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          New-Item -ItemType Directory -Force -Path "$outputRoot" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$outputRoot\charts" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$outputRoot\$env:REPORT_MODE" | Out-Null
+
+      - name: Run monthly report batch
+        shell: powershell
+        run: |
+          python src/main.py --month "$env:REPORT_MONTH" --mode "$env:REPORT_MODE"
+
+      - name: Verify output exists
+        shell: powershell
+        run: |
+          if (-Not (Test-Path "$env:OUTPUT_ROOT")) {
+            Write-Error "Output directory not found: $env:OUTPUT_ROOT"
+          }
+          Get-ChildItem -Recurse "$env:OUTPUT_ROOT"
+
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-investment-report-${{ env.REPORT_MONTH }}-${{ env.REPORT_MODE }}
+          path: data/output/monthly-report/${{ env.REPORT_MONTH }}/**
+          if-no-files-found: error
+          retention-days: 14
