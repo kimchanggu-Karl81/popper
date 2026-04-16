@@ -110,11 +110,51 @@ def create_fund_chart(fund_df: pd.DataFrame | None, charts_dir: Path) -> str | N
     return str(output_path)
 
 
-def build_report_summary(report_month: str, mode: str, asset_df, fund_df, asset_chart_path, fund_chart_path) -> str:
+def create_allocation_charts(allocation_df: pd.DataFrame | None, charts_dir: Path) -> dict[str, str]:
+    results = {}
+
+    if allocation_df is None or allocation_df.empty:
+        return results
+
+    for _, row in allocation_df.iterrows():
+        profile = str(row["profile_type"])
+        risky = float(row["risky_ratio"])
+        safe = float(row["safe_ratio"])
+
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.pie(
+            [risky, safe],
+            labels=["Risky Assets", "Safe Assets"],
+            autopct="%1.1f%%",
+            startangle=90,
+        )
+        ax.set_title(f"{profile} Allocation")
+
+        safe_name = profile.replace("/", "_").replace(" ", "_")
+        output_path = charts_dir / f"allocation_{safe_name}.png"
+        fig.savefig(output_path, bbox_inches="tight", dpi=200)
+        plt.close(fig)
+
+        results[profile] = str(output_path)
+
+    return results
+
+
+def build_report_summary(
+    report_month: str,
+    mode: str,
+    asset_df,
+    fund_df,
+    allocation_df,
+    asset_chart_path,
+    fund_chart_path,
+    allocation_chart_paths,
+) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     asset_rows = len(asset_df) if asset_df is not None else 0
     fund_rows = len(fund_df) if fund_df is not None else 0
+    allocation_rows = len(allocation_df) if allocation_df is not None else 0
 
     lines = [
         "Monthly Investment Report Draft Summary",
@@ -126,21 +166,19 @@ def build_report_summary(report_month: str, mode: str, asset_df, fund_df, asset_
         "[Input file status]",
         f"asset_market_perf.csv rows: {asset_rows}",
         f"fund_performance.csv rows: {fund_rows}",
+        f"allocation_model.csv rows: {allocation_rows}",
         "",
         "[Generated charts]",
         f"asset_return_1y.png: {'created' if asset_chart_path else 'not created'}",
         f"fund_return_1y.png: {'created' if fund_chart_path else 'not created'}",
+        f"allocation charts created: {len(allocation_chart_paths)}",
         "",
     ]
 
-    if asset_df is not None and not asset_df.empty:
-        lines.append("[Asset market preview]")
-        lines.append(asset_df.head(3).to_string(index=False))
-        lines.append("")
-
-    if fund_df is not None and not fund_df.empty:
-        lines.append("[Fund performance preview]")
-        lines.append(fund_df.head(3).to_string(index=False))
+    if allocation_chart_paths:
+        lines.append("[Allocation chart files]")
+        for profile, path in allocation_chart_paths.items():
+            lines.append(f"- {profile}: {path}")
         lines.append("")
 
     if asset_df is None or fund_df is None:
@@ -153,9 +191,19 @@ def build_report_summary(report_month: str, mode: str, asset_df, fund_df, asset_
     return "\n".join(lines)
 
 
-def build_report_metadata(report_month: str, mode: str, asset_df, fund_df, asset_chart_path, fund_chart_path) -> dict:
+def build_report_metadata(
+    report_month: str,
+    mode: str,
+    asset_df,
+    fund_df,
+    allocation_df,
+    asset_chart_path,
+    fund_chart_path,
+    allocation_chart_paths,
+) -> dict:
     asset_summary = summarize_dataframe(asset_df, "asset_market_perf.csv")
     fund_summary = summarize_dataframe(fund_df, "fund_performance.csv")
+    allocation_summary = summarize_dataframe(allocation_df, "allocation_model.csv")
 
     return {
         "generated_at": datetime.now().isoformat(),
@@ -165,60 +213,83 @@ def build_report_metadata(report_month: str, mode: str, asset_df, fund_df, asset
         "files": [
             asset_summary,
             fund_summary,
+            allocation_summary,
         ],
         "charts": {
             "asset_return_1y": asset_chart_path,
             "fund_return_1y": fund_chart_path,
+            "allocation_charts": allocation_chart_paths,
         },
         "next_steps": [
             "Add Excel input loading",
-            "Add allocation chart",
-            "Add PPTX generation",
+            "Add table rendering",
+            "Add richer PPT layout",
             "Add PDF export",
         ],
     }
 
 
-def add_textbox(slide, left, top, width, height, text, font_size=18):
+def add_textbox(slide, left, top, width, height, text):
     textbox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
-    tf = textbox.text_frame
-    tf.text = text
-    for paragraph in tf.paragraphs:
-        for run in paragraph.runs:
-            run.font.size = Inches(font_size / 72)
+    textbox.text_frame.text = text
     return textbox
 
 
-def create_pptx_report(report_month: str, mode: str, paths: dict[str, Path], summary_text: str,
-                       asset_chart_path: str | None, fund_chart_path: str | None) -> Path:
+def create_pptx_report(
+    report_month: str,
+    mode: str,
+    paths: dict[str, Path],
+    summary_text: str,
+    asset_chart_path: str | None,
+    fund_chart_path: str | None,
+    allocation_chart_paths: dict[str, str],
+) -> Path:
     prs = Presentation()
 
-    # Slide 1: cover
+    # Slide 1
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = "Monthly Investment Report Draft"
     slide.placeholders[1].text = f"Report month: {report_month}\nMode: {mode}"
 
-    # Slide 2: summary
+    # Slide 2
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Execution Summary"
     summary_preview = "\n".join(summary_text.splitlines()[:20])
-    add_textbox(slide, 0.6, 1.5, 8.5, 4.5, summary_preview, font_size=12)
+    add_textbox(slide, 0.6, 1.3, 8.5, 4.8, summary_preview)
 
-    # Slide 3: asset chart
+    # Slide 3
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Asset Performance Chart"
     if asset_chart_path and Path(asset_chart_path).exists():
         slide.shapes.add_picture(asset_chart_path, Inches(0.6), Inches(1.5), width=Inches(8.5))
     else:
-        add_textbox(slide, 0.8, 2.0, 6.0, 1.0, "Asset chart not available", font_size=16)
+        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset chart not available")
 
-    # Slide 4: fund chart
+    # Slide 4
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Fund Performance Chart"
     if fund_chart_path and Path(fund_chart_path).exists():
         slide.shapes.add_picture(fund_chart_path, Inches(0.6), Inches(1.5), width=Inches(8.5))
     else:
-        add_textbox(slide, 0.8, 2.0, 6.0, 1.0, "Fund chart not available", font_size=16)
+        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund chart not available")
+
+    # Slide 5
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    slide.shapes.title.text = "Allocation Strategy"
+
+    positions = [
+        (0.3, 1.4),
+        (3.4, 1.4),
+        (6.5, 1.4),
+    ]
+
+    items = list(allocation_chart_paths.items())[:3]
+    for (profile, chart_path), (left, top) in zip(items, positions):
+        add_textbox(slide, left, top - 0.4, 2.5, 0.4, profile)
+        if Path(chart_path).exists():
+            slide.shapes.add_picture(chart_path, Inches(left), Inches(top), width=Inches(2.5))
+        else:
+            add_textbox(slide, left, top, 2.5, 0.8, "Chart not available")
 
     output_path = paths["report_root"] / "monthly_report_draft.pptx"
     prs.save(output_path)
@@ -247,17 +318,21 @@ def main():
 
     asset_df = load_csv_if_exists(INPUT_DIR / "asset_market_perf.csv")
     fund_df = load_csv_if_exists(INPUT_DIR / "fund_performance.csv")
+    allocation_df = load_csv_if_exists(INPUT_DIR / "allocation_model.csv")
 
     asset_chart_path = create_asset_chart(asset_df, paths["charts_dir"])
     fund_chart_path = create_fund_chart(fund_df, paths["charts_dir"])
+    allocation_chart_paths = create_allocation_charts(allocation_df, paths["charts_dir"])
 
     summary_text = build_report_summary(
         args.month,
         args.mode,
         asset_df,
         fund_df,
+        allocation_df,
         asset_chart_path,
         fund_chart_path,
+        allocation_chart_paths,
     )
 
     metadata = build_report_metadata(
@@ -265,8 +340,10 @@ def main():
         args.mode,
         asset_df,
         fund_df,
+        allocation_df,
         asset_chart_path,
         fund_chart_path,
+        allocation_chart_paths,
     )
 
     pptx_path = create_pptx_report(
@@ -276,6 +353,7 @@ def main():
         summary_text,
         asset_chart_path,
         fund_chart_path,
+        allocation_chart_paths,
     )
 
     write_outputs(paths, summary_text, metadata, pptx_path)
