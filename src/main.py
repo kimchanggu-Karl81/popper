@@ -44,9 +44,12 @@ def ensure_directories(report_month: str, mode: str) -> dict[str, Path]:
     }
 
 
-def load_csv_if_exists(path: Path):
+def load_excel_sheet_if_exists(path: Path, sheet_name: str):
     if path.exists():
-        return pd.read_csv(path)
+        try:
+            return pd.read_excel(path, sheet_name=sheet_name)
+        except Exception:
+            return None
     return None
 
 
@@ -92,7 +95,7 @@ def get_comment_inputs(comment_df: pd.DataFrame | None) -> dict:
 
 
 def create_asset_chart(asset_df: pd.DataFrame | None, charts_dir: Path) -> str | None:
-    if asset_df is None or asset_df.empty:
+    if asset_df is None or asset_df.empty or "asset_name" not in asset_df.columns or "return_1y" not in asset_df.columns:
         return None
 
     plot_df = asset_df.copy()
@@ -117,7 +120,7 @@ def create_asset_chart(asset_df: pd.DataFrame | None, charts_dir: Path) -> str |
 
 
 def create_fund_chart(fund_df: pd.DataFrame | None, charts_dir: Path) -> str | None:
-    if fund_df is None or fund_df.empty:
+    if fund_df is None or fund_df.empty or "fund_name" not in fund_df.columns or "return_1y" not in fund_df.columns:
         return None
 
     plot_df = fund_df.copy()
@@ -144,7 +147,8 @@ def create_fund_chart(fund_df: pd.DataFrame | None, charts_dir: Path) -> str | N
 def create_allocation_charts(allocation_df: pd.DataFrame | None, charts_dir: Path) -> dict[str, str]:
     results = {}
 
-    if allocation_df is None or allocation_df.empty:
+    required_cols = {"profile_type", "risky_ratio", "safe_ratio"}
+    if allocation_df is None or allocation_df.empty or not required_cols.issubset(set(allocation_df.columns)):
         return results
 
     for _, row in allocation_df.iterrows():
@@ -194,10 +198,10 @@ def build_report_summary(
         f"Report month: {report_month}",
         f"Mode: {mode}",
         "",
-        "[Input file status]",
-        f"asset_market_perf.csv rows: {asset_rows}",
-        f"fund_performance.csv rows: {fund_rows}",
-        f"allocation_model.csv rows: {allocation_rows}",
+        "[Input sheet status]",
+        f"asset_market_perf rows: {asset_rows}",
+        f"fund_performance rows: {fund_rows}",
+        f"allocation_model rows: {allocation_rows}",
         "",
         "[Generated charts]",
         f"asset_return_1y.png: {'created' if asset_chart_path else 'not created'}",
@@ -214,10 +218,10 @@ def build_report_summary(
 
     if asset_df is None or fund_df is None:
         lines.append("[Warning]")
-        lines.append("Some required CSV files are missing.")
+        lines.append("Some required sheets are missing or could not be loaded.")
     else:
         lines.append("[Status]")
-        lines.append("CSV input files loaded successfully and chart generation was attempted.")
+        lines.append("Excel input sheets loaded successfully and chart generation was attempted.")
 
     return "\n".join(lines)
 
@@ -232,16 +236,16 @@ def build_report_metadata(
     fund_chart_path,
     allocation_chart_paths,
 ) -> dict:
-    asset_summary = summarize_dataframe(asset_df, "asset_market_perf.csv")
-    fund_summary = summarize_dataframe(fund_df, "fund_performance.csv")
-    allocation_summary = summarize_dataframe(allocation_df, "allocation_model.csv")
+    asset_summary = summarize_dataframe(asset_df, "asset_market_perf")
+    fund_summary = summarize_dataframe(fund_df, "fund_performance")
+    allocation_summary = summarize_dataframe(allocation_df, "allocation_model")
 
     return {
         "generated_at": datetime.now().isoformat(),
         "report_month": report_month,
         "mode": mode,
-        "input_dir": str(INPUT_DIR),
-        "files": [
+        "input_excel": str(INPUT_DIR / "monthly_report_input.xlsx"),
+        "sheets": [
             asset_summary,
             fund_summary,
             allocation_summary,
@@ -252,7 +256,6 @@ def build_report_metadata(
             "allocation_charts": allocation_chart_paths,
         },
         "next_steps": [
-            "Add Excel input loading",
             "Add richer PPT layout",
             "Add commentary text automation",
             "Add PDF export",
@@ -341,7 +344,8 @@ def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_banner(slide, "Asset Performance Table")
 
-    if asset_df is None or asset_df.empty:
+    required_cols = {"asset_name", "return_1m", "return_3m", "return_1y", "return_3y"}
+    if asset_df is None or asset_df.empty or not required_cols.issubset(set(asset_df.columns)):
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset table not available")
         return
 
@@ -399,7 +403,8 @@ def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_banner(slide, "Fund Performance Table")
 
-    if fund_df is None or fund_df.empty:
+    required_cols = {"fund_name", "risk_grade", "return_1y", "return_2y", "return_3y"}
+    if fund_df is None or fund_df.empty or not required_cols.issubset(set(fund_df.columns)):
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund table not available")
         return
 
@@ -572,11 +577,13 @@ def main():
     args = parse_args()
     paths = ensure_directories(args.month, args.mode)
 
-    asset_df = load_csv_if_exists(INPUT_DIR / "asset_market_perf.csv")
-    fund_df = load_csv_if_exists(INPUT_DIR / "fund_performance.csv")
-    allocation_df = load_csv_if_exists(INPUT_DIR / "allocation_model.csv")
-    report_master_df = load_csv_if_exists(INPUT_DIR / "report_master.csv")
-    comment_df = load_csv_if_exists(INPUT_DIR / "comment_input.csv")
+    excel_path = INPUT_DIR / "monthly_report_input.xlsx"
+
+    asset_df = load_excel_sheet_if_exists(excel_path, "asset_market_perf")
+    fund_df = load_excel_sheet_if_exists(excel_path, "fund_performance")
+    allocation_df = load_excel_sheet_if_exists(excel_path, "allocation_model")
+    report_master_df = load_excel_sheet_if_exists(excel_path, "report_master")
+    comment_df = load_excel_sheet_if_exists(excel_path, "comment_input")
 
     report_master = get_report_master(report_master_df)
     comment_inputs = get_comment_inputs(comment_df)
