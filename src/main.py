@@ -143,7 +143,7 @@ def main():
 
     write_outputs(paths, summary_text, metadata)
 
-    print("월간 보고서 초안 생성이 완료되었습니다.")
+    print("Monthly report draft generation completed.")
 
 
 if __name__ == "__main__":
