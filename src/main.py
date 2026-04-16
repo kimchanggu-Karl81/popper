@@ -234,12 +234,52 @@ def add_textbox(slide, left, top, width, height, text):
     textbox.text_frame.text = text
     return textbox
 
+def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    slide.shapes.title.text = "Asset Performance Table"
+
+    if asset_df is None or asset_df.empty:
+        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset table not available")
+        return
+
+    display_df = asset_df.copy()
+
+    keep_columns = [
+        "asset_name",
+        "return_1m",
+        "return_3m",
+        "return_1y",
+        "return_3y",
+    ]
+    display_df = display_df[keep_columns].head(8)
+
+    rows = len(display_df) + 1
+    cols = len(display_df.columns)
+
+    table = slide.shapes.add_table(
+        rows,
+        cols,
+        Inches(0.4),
+        Inches(1.4),
+        Inches(8.8),
+        Inches(3.8),
+    ).table
+
+    for c, col_name in enumerate(display_df.columns):
+        table.cell(0, c).text = str(col_name)
+
+    for r in range(len(display_df)):
+        for c in range(cols):
+            value = display_df.iloc[r, c]
+            table.cell(r + 1, c).text = str(value)
 
 def create_pptx_report(
     report_month: str,
     mode: str,
     paths: dict[str, Path],
     summary_text: str,
+    asset_df,
+    fund_df,
     asset_chart_path: str | None,
     fund_chart_path: str | None,
     allocation_chart_paths: dict[str, str],
@@ -256,7 +296,9 @@ def create_pptx_report(
     slide.shapes.title.text = "Execution Summary"
     summary_preview = "\n".join(summary_text.splitlines()[:20])
     add_textbox(slide, 0.6, 1.3, 8.5, 4.8, summary_preview)
-
+    add_asset_table_slide(prs, asset_df)
+    add_fund_table_slide(prs, fund_df)
+    
     # Slide 3
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Asset Performance Chart"
@@ -346,15 +388,17 @@ def main():
         allocation_chart_paths,
     )
 
-    pptx_path = create_pptx_report(
-        args.month,
-        args.mode,
-        paths,
-        summary_text,
-        asset_chart_path,
-        fund_chart_path,
-        allocation_chart_paths,
-    )
+pptx_path = create_pptx_report(
+    args.month,
+    args.mode,
+    paths,
+    summary_text,
+    asset_df,
+    fund_df,
+    asset_chart_path,
+    fund_chart_path,
+    allocation_chart_paths,
+)
 
     write_outputs(paths, summary_text, metadata, pptx_path)
 
