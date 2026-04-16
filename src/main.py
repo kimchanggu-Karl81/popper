@@ -6,13 +6,21 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 from pptx import Presentation
-from pptx.enum.text import PP_ALIGN
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.util import Inches, Pt
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INPUT_DIR = BASE_DIR / "data" / "input"
 OUTPUT_BASE_DIR = BASE_DIR / "data" / "output" / "monthly-report"
+
+THEME_BLUE = RGBColor(31, 78, 121)
+THEME_LIGHT_BLUE = RGBColor(221, 235, 247)
+THEME_GRAY = RGBColor(242, 242, 242)
+THEME_DARK = RGBColor(64, 64, 64)
+WHITE = RGBColor(255, 255, 255)
 
 
 def parse_args():
@@ -230,26 +238,64 @@ def build_report_metadata(
     }
 
 
-def add_textbox(slide, left, top, width, height, text, font_size=16, bold=False, align=PP_ALIGN.LEFT):
+def add_textbox(
+    slide,
+    left,
+    top,
+    width,
+    height,
+    text,
+    font_size=16,
+    bold=False,
+    align=PP_ALIGN.LEFT,
+    font_color=THEME_DARK,
+):
     textbox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = textbox.text_frame
     tf.clear()
+    tf.vertical_anchor = MSO_ANCHOR.TOP
     p = tf.paragraphs[0]
     p.alignment = align
     run = p.add_run()
     run.text = text
     run.font.size = Pt(font_size)
     run.font.bold = bold
+    run.font.color.rgb = font_color
     return textbox
 
 
-def format_table_text(cell, font_size=9, bold=False, align=PP_ALIGN.CENTER):
+def add_banner(slide, title_text):
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(0),
+        Inches(0),
+        Inches(10),
+        Inches(0.6),
+    )
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = THEME_BLUE
+    shape.line.color.rgb = THEME_BLUE
+
+    text_frame = shape.text_frame
+    text_frame.clear()
+    p = text_frame.paragraphs[0]
+    p.alignment = PP_ALIGN.LEFT
+    run = p.add_run()
+    run.text = f"  {title_text}"
+    run.font.size = Pt(20)
+    run.font.bold = True
+    run.font.color.rgb = WHITE
+
+
+def format_table_text(cell, font_size=9, bold=False, align=PP_ALIGN.CENTER, font_color=THEME_DARK):
     tf = cell.text_frame
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
     for paragraph in tf.paragraphs:
         paragraph.alignment = align
         for run in paragraph.runs:
             run.font.size = Pt(font_size)
             run.font.bold = bold
+            run.font.color.rgb = font_color
 
 
 def set_column_widths(table, widths_in_inches):
@@ -257,9 +303,21 @@ def set_column_widths(table, widths_in_inches):
         table.columns[idx].width = Inches(width)
 
 
+def style_table_header(cell):
+    cell.fill.solid()
+    cell.fill.fore_color.rgb = THEME_BLUE
+    format_table_text(cell, font_size=11, bold=True, align=PP_ALIGN.CENTER, font_color=WHITE)
+
+
+def style_table_body(cell, align):
+    cell.fill.solid()
+    cell.fill.fore_color.rgb = WHITE
+    format_table_text(cell, font_size=9, bold=False, align=align, font_color=THEME_DARK)
+
+
 def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
-    slide = prs.slides.add_slide(prs.slide_layouts[5])
-    slide.shapes.title.text = "Asset Performance Table"
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "Asset Performance Table")
 
     if asset_df is None or asset_df.empty:
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset table not available")
@@ -295,9 +353,9 @@ def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
     table = slide.shapes.add_table(
         rows,
         cols,
-        Inches(0.3),
-        Inches(1.5),
-        Inches(9.0),
+        Inches(0.4),
+        Inches(1.4),
+        Inches(8.8),
         Inches(3.2),
     ).table
 
@@ -305,19 +363,19 @@ def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
 
     for c, col_name in enumerate(display_df.columns):
         table.cell(0, c).text = str(col_name)
-        format_table_text(table.cell(0, c), font_size=11, bold=True, align=PP_ALIGN.CENTER)
+        style_table_header(table.cell(0, c))
 
     for r in range(len(display_df)):
         for c in range(cols):
             value = str(display_df.iloc[r, c])
             table.cell(r + 1, c).text = value
             align = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
-            format_table_text(table.cell(r + 1, c), font_size=9, bold=False, align=align)
+            style_table_body(table.cell(r + 1, c), align=align)
 
 
 def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
-    slide = prs.slides.add_slide(prs.slide_layouts[5])
-    slide.shapes.title.text = "Fund Performance Table"
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "Fund Performance Table")
 
     if fund_df is None or fund_df.empty:
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund table not available")
@@ -353,9 +411,9 @@ def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
     table = slide.shapes.add_table(
         rows,
         cols,
-        Inches(0.3),
-        Inches(1.5),
-        Inches(9.0),
+        Inches(0.4),
+        Inches(1.4),
+        Inches(8.8),
         Inches(3.2),
     ).table
 
@@ -363,14 +421,14 @@ def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
 
     for c, col_name in enumerate(display_df.columns):
         table.cell(0, c).text = str(col_name)
-        format_table_text(table.cell(0, c), font_size=11, bold=True, align=PP_ALIGN.CENTER)
+        style_table_header(table.cell(0, c))
 
     for r in range(len(display_df)):
         for c in range(cols):
             value = str(display_df.iloc[r, c])
             table.cell(r + 1, c).text = value
             align = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
-            format_table_text(table.cell(r + 1, c), font_size=9, bold=False, align=align)
+            style_table_body(table.cell(r + 1, c), align=align)
 
 
 def create_pptx_report(
@@ -386,39 +444,47 @@ def create_pptx_report(
 ) -> Path:
     prs = Presentation()
 
-    slide = prs.slides.add_slide(prs.slide_layouts[0])
-    slide.shapes.title.text = "Monthly Investment Report Draft"
-    slide.placeholders[1].text = f"Report month: {report_month}\nMode: {mode}"
+    # Cover
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "Monthly Investment Report Draft")
+    add_textbox(slide, 0.8, 1.5, 8.0, 0.8, "월간 투자전략 보고서 초안", font_size=28, bold=True)
+    add_textbox(slide, 0.8, 2.4, 5.0, 0.5, f"Report month: {report_month}", font_size=18)
+    add_textbox(slide, 0.8, 2.9, 4.0, 0.5, f"Mode: {mode}", font_size=18)
 
-    slide = prs.slides.add_slide(prs.slide_layouts[5])
-    slide.shapes.title.text = "Execution Summary"
+    # Summary
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "Execution Summary")
     summary_preview = "\n".join(summary_text.splitlines()[:18])
-    add_textbox(slide, 0.6, 1.3, 8.5, 4.8, summary_preview, font_size=12)
+    add_textbox(slide, 0.6, 1.2, 8.8, 4.8, summary_preview, font_size=12)
 
+    # Tables
     add_asset_table_slide(prs, asset_df)
     add_fund_table_slide(prs, fund_df)
 
-    slide = prs.slides.add_slide(prs.slide_layouts[5])
-    slide.shapes.title.text = "Asset Performance Chart"
+    # Asset chart
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "Asset Performance Chart")
     if asset_chart_path and Path(asset_chart_path).exists():
-        slide.shapes.add_picture(asset_chart_path, Inches(0.6), Inches(1.5), width=Inches(8.5))
+        slide.shapes.add_picture(asset_chart_path, Inches(0.6), Inches(1.2), width=Inches(8.5))
     else:
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset chart not available")
 
-    slide = prs.slides.add_slide(prs.slide_layouts[5])
-    slide.shapes.title.text = "Fund Performance Chart"
+    # Fund chart
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "Fund Performance Chart")
     if fund_chart_path and Path(fund_chart_path).exists():
-        slide.shapes.add_picture(fund_chart_path, Inches(0.6), Inches(1.5), width=Inches(8.5))
+        slide.shapes.add_picture(fund_chart_path, Inches(0.6), Inches(1.2), width=Inches(8.5))
     else:
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund chart not available")
 
-    slide = prs.slides.add_slide(prs.slide_layouts[5])
-    slide.shapes.title.text = "Allocation Strategy"
+    # Allocation
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "Allocation Strategy")
 
     positions = [
-        (0.3, 1.4),
-        (3.4, 1.4),
-        (6.5, 1.4),
+        (0.3, 1.5),
+        (3.4, 1.5),
+        (6.5, 1.5),
     ]
 
     items = list(allocation_chart_paths.items())[:3]
