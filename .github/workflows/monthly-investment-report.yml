@@ -113,4 +113,3 @@ jobs:
           path: data/output/monthly-report/${{ env.REPORT_MONTH }}/**
           if-no-files-found: error
           retention-days: 14
-          retention-days: 14
