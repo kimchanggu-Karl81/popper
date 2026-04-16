@@ -5,6 +5,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from pptx import Presentation
+from pptx.util import Inches
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -177,7 +179,53 @@ def build_report_metadata(report_month: str, mode: str, asset_df, fund_df, asset
     }
 
 
-def write_outputs(paths: dict[str, Path], summary_text: str, metadata: dict) -> None:
+def add_textbox(slide, left, top, width, height, text, font_size=18):
+    textbox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+    tf = textbox.text_frame
+    tf.text = text
+    for paragraph in tf.paragraphs:
+        for run in paragraph.runs:
+            run.font.size = Inches(font_size / 72)
+    return textbox
+
+
+def create_pptx_report(report_month: str, mode: str, paths: dict[str, Path], summary_text: str,
+                       asset_chart_path: str | None, fund_chart_path: str | None) -> Path:
+    prs = Presentation()
+
+    # Slide 1: cover
+    slide = prs.slides.add_slide(prs.slide_layouts[0])
+    slide.shapes.title.text = "Monthly Investment Report Draft"
+    slide.placeholders[1].text = f"Report month: {report_month}\nMode: {mode}"
+
+    # Slide 2: summary
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    slide.shapes.title.text = "Execution Summary"
+    summary_preview = "\n".join(summary_text.splitlines()[:20])
+    add_textbox(slide, 0.6, 1.5, 8.5, 4.5, summary_preview, font_size=12)
+
+    # Slide 3: asset chart
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    slide.shapes.title.text = "Asset Performance Chart"
+    if asset_chart_path and Path(asset_chart_path).exists():
+        slide.shapes.add_picture(asset_chart_path, Inches(0.6), Inches(1.5), width=Inches(8.5))
+    else:
+        add_textbox(slide, 0.8, 2.0, 6.0, 1.0, "Asset chart not available", font_size=16)
+
+    # Slide 4: fund chart
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    slide.shapes.title.text = "Fund Performance Chart"
+    if fund_chart_path and Path(fund_chart_path).exists():
+        slide.shapes.add_picture(fund_chart_path, Inches(0.6), Inches(1.5), width=Inches(8.5))
+    else:
+        add_textbox(slide, 0.8, 2.0, 6.0, 1.0, "Fund chart not available", font_size=16)
+
+    output_path = paths["report_root"] / "monthly_report_draft.pptx"
+    prs.save(output_path)
+    return output_path
+
+
+def write_outputs(paths: dict[str, Path], summary_text: str, metadata: dict, pptx_path: Path) -> None:
     summary_path = paths["report_root"] / "report_summary.txt"
     metadata_path = paths["report_root"] / "report_metadata.json"
 
@@ -189,6 +237,7 @@ def write_outputs(paths: dict[str, Path], summary_text: str, metadata: dict) -> 
 
     print(f"Created: {summary_path}")
     print(f"Created: {metadata_path}")
+    print(f"Created: {pptx_path}")
     print("Monthly report draft generation completed.")
 
 
@@ -210,6 +259,7 @@ def main():
         asset_chart_path,
         fund_chart_path,
     )
+
     metadata = build_report_metadata(
         args.month,
         args.mode,
@@ -219,7 +269,16 @@ def main():
         fund_chart_path,
     )
 
-    write_outputs(paths, summary_text, metadata)
+    pptx_path = create_pptx_report(
+        args.month,
+        args.mode,
+        paths,
+        summary_text,
+        asset_chart_path,
+        fund_chart_path,
+    )
+
+    write_outputs(paths, summary_text, metadata, pptx_path)
 
 
 if __name__ == "__main__":
