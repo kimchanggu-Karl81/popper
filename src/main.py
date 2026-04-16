@@ -3,23 +3,16 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INPUT_DIR = BASE_DIR / "data" / "input"
 OUTPUT_BASE_DIR = BASE_DIR / "data" / "output" / "monthly-report"
 
 
-REQUIRED_INPUTS = [
-    "report_master.xlsx",
-    "asset_market_perf.csv",
-    "fund_performance.csv",
-    "allocation_model.csv",
-    "comment_input.xlsx",
-]
-
-
 def parse_args():
-    parser = argparse.ArgumentParser(description="월간 투자전략 보고서 초안 생성")
+    parser = argparse.ArgumentParser(description="Monthly investment report draft generator")
     parser.add_argument("--month", required=False, default=datetime.now().strftime("%Y-%m"))
     parser.add_argument("--mode", required=False, default="draft", choices=["draft", "final"])
     return parser.parse_args()
@@ -41,80 +34,86 @@ def ensure_directories(report_month: str, mode: str) -> dict[str, Path]:
     }
 
 
-def check_input_files() -> list[dict]:
-    results = []
-    for filename in REQUIRED_INPUTS:
-        file_path = INPUT_DIR / filename
-        results.append(
-            {
-                "file_name": filename,
-                "path": str(file_path),
-                "exists": file_path.exists(),
-            }
-        )
-    return results
+def load_csv_if_exists(path: Path):
+    if path.exists():
+        return pd.read_csv(path)
+    return None
 
 
-def build_report_summary(report_month: str, mode: str, input_status: list[dict]) -> str:
+def summarize_dataframe(df: pd.DataFrame | None, name: str) -> dict:
+    if df is None:
+        return {
+            "name": name,
+            "exists": False,
+            "rows": 0,
+            "columns": [],
+        }
+
+    return {
+        "name": name,
+        "exists": True,
+        "rows": int(len(df)),
+        "columns": list(df.columns),
+    }
+
+
+def build_report_summary(report_month: str, mode: str, asset_df, fund_df) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    existing_count = sum(1 for item in input_status if item["exists"])
-    missing_files = [item["file_name"] for item in input_status if not item["exists"]]
+
+    asset_rows = len(asset_df) if asset_df is not None else 0
+    fund_rows = len(fund_df) if fund_df is not None else 0
 
     lines = [
-        "월간 투자전략 보고서 초안 생성 결과",
+        "Monthly Investment Report Draft Summary",
         "=" * 40,
-        f"생성 시각: {now}",
-        f"보고서 대상월: {report_month}",
-        f"실행 모드: {mode}",
+        f"Generated at: {now}",
+        f"Report month: {report_month}",
+        f"Mode: {mode}",
         "",
-        "[입력 파일 점검 결과]",
-        f"총 필요 파일 수: {len(input_status)}",
-        f"존재하는 파일 수: {existing_count}",
-        f"누락된 파일 수: {len(missing_files)}",
+        "[Input file status]",
+        f"asset_market_perf.csv rows: {asset_rows}",
+        f"fund_performance.csv rows: {fund_rows}",
         "",
     ]
 
-    for item in input_status:
-        status = "존재" if item["exists"] else "누락"
-        lines.append(f"- {item['file_name']}: {status}")
+    if asset_df is not None and not asset_df.empty:
+        lines.append("[Asset market preview]")
+        lines.append(asset_df.head(3).to_string(index=False))
+        lines.append("")
 
-    lines.extend(
-        [
-            "",
-            "[포함 예정 섹션]",
-            "- 표지",
-            "- 주요 자산 시장 점검",
-            "- 자산배분 전략",
-            "- 추천 펀드",
-            "- 성과 요약",
-            "",
-        ]
-    )
+    if fund_df is not None and not fund_df.empty:
+        lines.append("[Fund performance preview]")
+        lines.append(fund_df.head(3).to_string(index=False))
+        lines.append("")
 
-    if missing_files:
-        lines.append("[주의]")
-        lines.append("일부 입력 파일이 없어서 실제 보고서 생성 단계에서는 실패할 수 있습니다.")
-        lines.append("누락 파일을 먼저 업로드하거나 저장소에 추가해야 합니다.")
+    if asset_df is None or fund_df is None:
+        lines.append("[Warning]")
+        lines.append("Some required CSV files are missing.")
     else:
-        lines.append("[상태]")
-        lines.append("기본 입력 파일이 모두 확인되었습니다. 다음 단계 구현이 가능합니다.")
+        lines.append("[Status]")
+        lines.append("CSV input files loaded successfully.")
 
     return "\n".join(lines)
 
 
-def build_report_metadata(report_month: str, mode: str, input_status: list[dict]) -> dict:
+def build_report_metadata(report_month: str, mode: str, asset_df, fund_df) -> dict:
+    asset_summary = summarize_dataframe(asset_df, "asset_market_perf.csv")
+    fund_summary = summarize_dataframe(fund_df, "fund_performance.csv")
+
     return {
         "generated_at": datetime.now().isoformat(),
         "report_month": report_month,
         "mode": mode,
-        "base_dir": str(BASE_DIR),
         "input_dir": str(INPUT_DIR),
-        "required_inputs": input_status,
+        "files": [
+            asset_summary,
+            fund_summary,
+        ],
         "next_steps": [
-            "입력 데이터 실제 파싱 추가",
-            "차트 생성 로직 추가",
-            "PPTX 보고서 생성 로직 추가",
-            "PDF 변환 단계 추가",
+            "Add Excel input loading",
+            "Add chart generation",
+            "Add PPTX generation",
+            "Add PDF export",
         ],
     }
 
@@ -131,19 +130,20 @@ def write_outputs(paths: dict[str, Path], summary_text: str, metadata: dict) -> 
 
     print(f"Created: {summary_path}")
     print(f"Created: {metadata_path}")
+    print("Monthly report draft generation completed.")
 
 
 def main():
     args = parse_args()
-
     paths = ensure_directories(args.month, args.mode)
-    input_status = check_input_files()
-    summary_text = build_report_summary(args.month, args.mode, input_status)
-    metadata = build_report_metadata(args.month, args.mode, input_status)
+
+    asset_df = load_csv_if_exists(INPUT_DIR / "asset_market_perf.csv")
+    fund_df = load_csv_if_exists(INPUT_DIR / "fund_performance.csv")
+
+    summary_text = build_report_summary(args.month, args.mode, asset_df, fund_df)
+    metadata = build_report_metadata(args.month, args.mode, asset_df, fund_df)
 
     write_outputs(paths, summary_text, metadata)
-
-    print("Monthly report draft generation completed.")
 
 
 if __name__ == "__main__":
