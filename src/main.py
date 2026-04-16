@@ -234,6 +234,7 @@ def add_textbox(slide, left, top, width, height, text):
     textbox.text_frame.text = text
     return textbox
 
+
 def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Asset Performance Table"
@@ -243,7 +244,6 @@ def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
         return
 
     display_df = asset_df.copy()
-
     keep_columns = [
         "asset_name",
         "return_1m",
@@ -273,6 +273,46 @@ def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
             value = display_df.iloc[r, c]
             table.cell(r + 1, c).text = str(value)
 
+
+def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    slide.shapes.title.text = "Fund Performance Table"
+
+    if fund_df is None or fund_df.empty:
+        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund table not available")
+        return
+
+    display_df = fund_df.copy()
+    keep_columns = [
+        "fund_name",
+        "risk_grade",
+        "return_1y",
+        "return_2y",
+        "return_3y",
+    ]
+    display_df = display_df[keep_columns].head(8)
+
+    rows = len(display_df) + 1
+    cols = len(display_df.columns)
+
+    table = slide.shapes.add_table(
+        rows,
+        cols,
+        Inches(0.4),
+        Inches(1.4),
+        Inches(8.8),
+        Inches(3.8),
+    ).table
+
+    for c, col_name in enumerate(display_df.columns):
+        table.cell(0, c).text = str(col_name)
+
+    for r in range(len(display_df)):
+        for c in range(cols):
+            value = display_df.iloc[r, c]
+            table.cell(r + 1, c).text = str(value)
+
+
 def create_pptx_report(
     report_month: str,
     mode: str,
@@ -286,20 +326,18 @@ def create_pptx_report(
 ) -> Path:
     prs = Presentation()
 
-    # Slide 1
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = "Monthly Investment Report Draft"
     slide.placeholders[1].text = f"Report month: {report_month}\nMode: {mode}"
 
-    # Slide 2
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Execution Summary"
     summary_preview = "\n".join(summary_text.splitlines()[:20])
     add_textbox(slide, 0.6, 1.3, 8.5, 4.8, summary_preview)
+
     add_asset_table_slide(prs, asset_df)
     add_fund_table_slide(prs, fund_df)
-    
-    # Slide 3
+
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Asset Performance Chart"
     if asset_chart_path and Path(asset_chart_path).exists():
@@ -307,7 +345,6 @@ def create_pptx_report(
     else:
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset chart not available")
 
-    # Slide 4
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Fund Performance Chart"
     if fund_chart_path and Path(fund_chart_path).exists():
@@ -315,7 +352,6 @@ def create_pptx_report(
     else:
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund chart not available")
 
-    # Slide 5
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Allocation Strategy"
 
@@ -388,17 +424,17 @@ def main():
         allocation_chart_paths,
     )
 
-pptx_path = create_pptx_report(
-    args.month,
-    args.mode,
-    paths,
-    summary_text,
-    asset_df,
-    fund_df,
-    asset_chart_path,
-    fund_chart_path,
-    allocation_chart_paths,
-)
+    pptx_path = create_pptx_report(
+        args.month,
+        args.mode,
+        paths,
+        summary_text,
+        asset_df,
+        fund_df,
+        asset_chart_path,
+        fund_chart_path,
+        allocation_chart_paths,
+    )
 
     write_outputs(paths, summary_text, metadata, pptx_path)
 
