@@ -17,8 +17,6 @@ INPUT_DIR = BASE_DIR / "data" / "input"
 OUTPUT_BASE_DIR = BASE_DIR / "data" / "output" / "monthly-report"
 
 THEME_BLUE = RGBColor(31, 78, 121)
-THEME_LIGHT_BLUE = RGBColor(221, 235, 247)
-THEME_GRAY = RGBColor(242, 242, 242)
 THEME_DARK = RGBColor(64, 64, 64)
 WHITE = RGBColor(255, 255, 255)
 
@@ -67,6 +65,30 @@ def summarize_dataframe(df: pd.DataFrame | None, name: str) -> dict:
         "rows": int(len(df)),
         "columns": list(df.columns),
     }
+
+
+def get_report_master(report_master_df: pd.DataFrame | None) -> dict:
+    if report_master_df is None or report_master_df.empty:
+        return {
+            "report_month": "",
+            "report_title": "Monthly Investment Report Draft",
+            "report_subtitle": "Automated Draft",
+            "base_date": "",
+            "issue_code": "",
+        }
+    row = report_master_df.iloc[0].fillna("").to_dict()
+    return row
+
+
+def get_comment_inputs(comment_df: pd.DataFrame | None) -> dict:
+    if comment_df is None or comment_df.empty:
+        return {
+            "market_summary": "시장 코멘트가 없습니다.",
+            "recommendation_comment": "추천 코멘트가 없습니다.",
+            "manager_comment": "매니저 코멘트가 없습니다.",
+        }
+    row = comment_df.iloc[0].fillna("").to_dict()
+    return row
 
 
 def create_asset_chart(asset_df: pd.DataFrame | None, charts_dir: Path) -> str | None:
@@ -441,27 +463,59 @@ def create_pptx_report(
     asset_chart_path: str | None,
     fund_chart_path: str | None,
     allocation_chart_paths: dict[str, str],
+    report_master: dict,
+    comment_inputs: dict,
 ) -> Path:
     prs = Presentation()
 
-    # Cover
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_banner(slide, "Monthly Investment Report Draft")
-    add_textbox(slide, 0.8, 1.5, 8.0, 0.8, "월간 투자전략 보고서 초안", font_size=28, bold=True)
-    add_textbox(slide, 0.8, 2.4, 5.0, 0.5, f"Report month: {report_month}", font_size=18)
-    add_textbox(slide, 0.8, 2.9, 4.0, 0.5, f"Mode: {mode}", font_size=18)
+    add_banner(slide, report_master.get("report_title", "Monthly Investment Report Draft"))
+    add_textbox(
+        slide, 0.8, 1.5, 8.5, 0.8,
+        report_master.get("report_title", "월간 투자전략 보고서"),
+        font_size=26, bold=True
+    )
+    add_textbox(
+        slide, 0.8, 2.2, 8.5, 0.5,
+        report_master.get("report_subtitle", "Automated Draft"),
+        font_size=16
+    )
+    add_textbox(
+        slide, 0.8, 2.8, 4.5, 0.4,
+        f"기준월: {report_month}",
+        font_size=16
+    )
+    add_textbox(
+        slide, 0.8, 3.2, 4.5, 0.4,
+        f"기준일: {report_master.get('base_date', '')}",
+        font_size=16
+    )
+    add_textbox(
+        slide, 0.8, 3.6, 4.5, 0.4,
+        f"발행코드: {report_master.get('issue_code', '')}",
+        font_size=16
+    )
 
-    # Summary
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_banner(slide, "Execution Summary")
-    summary_preview = "\n".join(summary_text.splitlines()[:18])
-    add_textbox(slide, 0.6, 1.2, 8.8, 4.8, summary_preview, font_size=12)
 
-    # Tables
+    summary_preview = "\n".join(summary_text.splitlines()[:10])
+    market_summary = comment_inputs.get("market_summary", "")
+    recommendation_comment = comment_inputs.get("recommendation_comment", "")
+    manager_comment = comment_inputs.get("manager_comment", "")
+
+    combined_text = (
+        summary_preview
+        + "\n\n[시장 요약]\n" + market_summary
+        + "\n\n[추천 포인트]\n" + recommendation_comment
+        + "\n\n[매니저 코멘트]\n" + manager_comment
+    )
+
+    add_textbox(slide, 0.6, 1.2, 8.8, 4.8, combined_text, font_size=11)
+
     add_asset_table_slide(prs, asset_df)
     add_fund_table_slide(prs, fund_df)
 
-    # Asset chart
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_banner(slide, "Asset Performance Chart")
     if asset_chart_path and Path(asset_chart_path).exists():
@@ -469,7 +523,6 @@ def create_pptx_report(
     else:
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset chart not available")
 
-    # Fund chart
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_banner(slide, "Fund Performance Chart")
     if fund_chart_path and Path(fund_chart_path).exists():
@@ -477,7 +530,6 @@ def create_pptx_report(
     else:
         add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund chart not available")
 
-    # Allocation
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_banner(slide, "Allocation Strategy")
 
