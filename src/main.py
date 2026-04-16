@@ -6,7 +6,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 from pptx import Presentation
-from pptx.util import Inches
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches, Pt
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -222,17 +223,38 @@ def build_report_metadata(
         },
         "next_steps": [
             "Add Excel input loading",
-            "Add table rendering",
             "Add richer PPT layout",
+            "Add commentary text automation",
             "Add PDF export",
         ],
     }
 
 
-def add_textbox(slide, left, top, width, height, text):
+def add_textbox(slide, left, top, width, height, text, font_size=16, bold=False, align=PP_ALIGN.LEFT):
     textbox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
-    textbox.text_frame.text = text
+    tf = textbox.text_frame
+    tf.clear()
+    p = tf.paragraphs[0]
+    p.alignment = align
+    run = p.add_run()
+    run.text = text
+    run.font.size = Pt(font_size)
+    run.font.bold = bold
     return textbox
+
+
+def format_table_text(cell, font_size=9, bold=False, align=PP_ALIGN.CENTER):
+    tf = cell.text_frame
+    for paragraph in tf.paragraphs:
+        paragraph.alignment = align
+        for run in paragraph.runs:
+            run.font.size = Pt(font_size)
+            run.font.bold = bold
+
+
+def set_column_widths(table, widths_in_inches):
+    for idx, width in enumerate(widths_in_inches):
+        table.columns[idx].width = Inches(width)
 
 
 def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
@@ -251,7 +273,21 @@ def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
         "return_1y",
         "return_3y",
     ]
-    display_df = display_df[keep_columns].head(8)
+    display_df = display_df[keep_columns].head(5)
+
+    display_df = display_df.rename(columns={
+        "asset_name": "자산명",
+        "return_1m": "1M",
+        "return_3m": "3M",
+        "return_1y": "1Y",
+        "return_3y": "3Y",
+    })
+
+    for col in ["1M", "3M", "1Y", "3Y"]:
+        if col in display_df.columns:
+            display_df[col] = pd.to_numeric(display_df[col], errors="coerce").map(
+                lambda x: f"{x:.2f}" if pd.notnull(x) else ""
+            )
 
     rows = len(display_df) + 1
     cols = len(display_df.columns)
@@ -259,19 +295,24 @@ def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
     table = slide.shapes.add_table(
         rows,
         cols,
-        Inches(0.4),
-        Inches(1.4),
-        Inches(8.8),
-        Inches(3.8),
+        Inches(0.3),
+        Inches(1.5),
+        Inches(9.0),
+        Inches(3.2),
     ).table
+
+    set_column_widths(table, [3.2, 1.2, 1.2, 1.2, 1.2])
 
     for c, col_name in enumerate(display_df.columns):
         table.cell(0, c).text = str(col_name)
+        format_table_text(table.cell(0, c), font_size=11, bold=True, align=PP_ALIGN.CENTER)
 
     for r in range(len(display_df)):
         for c in range(cols):
-            value = display_df.iloc[r, c]
-            table.cell(r + 1, c).text = str(value)
+            value = str(display_df.iloc[r, c])
+            table.cell(r + 1, c).text = value
+            align = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
+            format_table_text(table.cell(r + 1, c), font_size=9, bold=False, align=align)
 
 
 def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
@@ -290,7 +331,21 @@ def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
         "return_2y",
         "return_3y",
     ]
-    display_df = display_df[keep_columns].head(8)
+    display_df = display_df[keep_columns].head(5)
+
+    display_df = display_df.rename(columns={
+        "fund_name": "펀드명",
+        "risk_grade": "위험등급",
+        "return_1y": "1Y",
+        "return_2y": "2Y",
+        "return_3y": "3Y",
+    })
+
+    for col in ["1Y", "2Y", "3Y"]:
+        if col in display_df.columns:
+            display_df[col] = pd.to_numeric(display_df[col], errors="coerce").map(
+                lambda x: f"{x:.2f}" if pd.notnull(x) else ""
+            )
 
     rows = len(display_df) + 1
     cols = len(display_df.columns)
@@ -298,19 +353,24 @@ def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
     table = slide.shapes.add_table(
         rows,
         cols,
-        Inches(0.4),
-        Inches(1.4),
-        Inches(8.8),
-        Inches(3.8),
+        Inches(0.3),
+        Inches(1.5),
+        Inches(9.0),
+        Inches(3.2),
     ).table
+
+    set_column_widths(table, [4.2, 1.6, 1.0, 1.0, 1.0])
 
     for c, col_name in enumerate(display_df.columns):
         table.cell(0, c).text = str(col_name)
+        format_table_text(table.cell(0, c), font_size=11, bold=True, align=PP_ALIGN.CENTER)
 
     for r in range(len(display_df)):
         for c in range(cols):
-            value = display_df.iloc[r, c]
-            table.cell(r + 1, c).text = str(value)
+            value = str(display_df.iloc[r, c])
+            table.cell(r + 1, c).text = value
+            align = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
+            format_table_text(table.cell(r + 1, c), font_size=9, bold=False, align=align)
 
 
 def create_pptx_report(
@@ -332,8 +392,8 @@ def create_pptx_report(
 
     slide = prs.slides.add_slide(prs.slide_layouts[5])
     slide.shapes.title.text = "Execution Summary"
-    summary_preview = "\n".join(summary_text.splitlines()[:20])
-    add_textbox(slide, 0.6, 1.3, 8.5, 4.8, summary_preview)
+    summary_preview = "\n".join(summary_text.splitlines()[:18])
+    add_textbox(slide, 0.6, 1.3, 8.5, 4.8, summary_preview, font_size=12)
 
     add_asset_table_slide(prs, asset_df)
     add_fund_table_slide(prs, fund_df)
@@ -363,11 +423,11 @@ def create_pptx_report(
 
     items = list(allocation_chart_paths.items())[:3]
     for (profile, chart_path), (left, top) in zip(items, positions):
-        add_textbox(slide, left, top - 0.4, 2.5, 0.4, profile)
+        add_textbox(slide, left, top - 0.35, 2.5, 0.35, profile, font_size=12, bold=True, align=PP_ALIGN.CENTER)
         if Path(chart_path).exists():
             slide.shapes.add_picture(chart_path, Inches(left), Inches(top), width=Inches(2.5))
         else:
-            add_textbox(slide, left, top, 2.5, 0.8, "Chart not available")
+            add_textbox(slide, left, top, 2.5, 0.8, "Chart not available", font_size=12)
 
     output_path = paths["report_root"] / "monthly_report_draft.pptx"
     prs.save(output_path)
