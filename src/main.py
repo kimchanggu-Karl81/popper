@@ -523,6 +523,11 @@ def main():
     asset_df = load_csv_if_exists(INPUT_DIR / "asset_market_perf.csv")
     fund_df = load_csv_if_exists(INPUT_DIR / "fund_performance.csv")
     allocation_df = load_csv_if_exists(INPUT_DIR / "allocation_model.csv")
+    report_master_df = load_csv_if_exists(INPUT_DIR / "report_master.csv")
+    comment_df = load_csv_if_exists(INPUT_DIR / "comment_input.csv")
+
+    report_master = get_report_master(report_master_df)
+    comment_inputs = get_comment_inputs(comment_df)
 
     asset_chart_path = create_asset_chart(asset_df, paths["charts_dir"])
     fund_chart_path = create_fund_chart(fund_df, paths["charts_dir"])
@@ -560,6 +565,8 @@ def main():
         asset_chart_path,
         fund_chart_path,
         allocation_chart_paths,
+        report_master,
+        comment_inputs,
     )
 
     write_outputs(paths, summary_text, metadata, pptx_path)
