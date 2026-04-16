@@ -1,0 +1,4 @@
+profile_type,risky_ratio,safe_ratio,domestic_equity_ratio,overseas_equity_ratio,domestic_bond_ratio,global_bond_ratio
+안정추구형,30,70,10,20,20,50
+위험중립형,40,60,15,25,20,40
+수익추구형,50,50,20,30,20,30
