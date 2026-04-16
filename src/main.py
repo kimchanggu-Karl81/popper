@@ -4,21 +4,40 @@ from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import openpyxl
 import pandas as pd
+from docx import Document
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-INPUT_DIR = BASE_DIR / "data" / "input"
+INPUT_DIR = BASE_DIR / "data" / "input" / "source_pages"
 OUTPUT_BASE_DIR = BASE_DIR / "data" / "output" / "monthly-report"
 
 THEME_BLUE = RGBColor(31, 78, 121)
 THEME_DARK = RGBColor(64, 64, 64)
 WHITE = RGBColor(255, 255, 255)
+
+SOURCE_FILES = {
+    "cover": INPUT_DIR / "cover" / "(P.1) (변경 O) 표지.xlsx",
+    "market_main": INPUT_DIR / "market" / "(P.2-3) (변경 O) 01.주요자산 시장점검.xlsx",
+    "market_returns": INPUT_DIR / "market" / "(P.2-3) (변경 O) 별첨_수익률.xlsx",
+    "market_charts": INPUT_DIR / "market" / "(P.2-3) (변경 O) 별첨_차트.xlsx",
+    "analyst_comment": INPUT_DIR / "comments" / "(P.4) (변경 O) 02.애널리스트 코멘트.docx",
+    "manager_comment": INPUT_DIR / "comments" / "(P.5) (변경 O) 03.매니저 코멘트.docx",
+    "allocation": INPUT_DIR / "allocation" / "(P.6) (변경 O) 04.투자자별 자산배분 전략.xlsx",
+    "funds_1": INPUT_DIR / "funds" / "(P.7) (변경 O) 05.변액보험 추천 펀드(1).xlsx",
+    "funds_2": INPUT_DIR / "funds" / "(P.8-9) (변경 O) 05.변액보험 추천 펀드(2).xlsx",
+    "lineup_savings": INPUT_DIR / "lineups" / "(P.16) (변경 X) 07.(저축성)대상펀드 Line-up.xlsx",
+    "lineup_protection": INPUT_DIR / "lineups" / "(P.17) (변경 X) 08.(보장성)대상펀드 Line-up.xlsx",
+    "performance": INPUT_DIR / "performance" / "(P.18) (변경 O) 09.변액펀드 성과현황.xlsx",
+    "overseas": INPUT_DIR / "overseas" / "(P.19-21) (변경 O) 10.해외펀드 투자현황.xlsx",
+    "managers": INPUT_DIR / "managers" / "(P.23) (변경 O) 12.펀드별 운용사 현황(1).xlsx",
+}
 
 
 def parse_args():
@@ -44,225 +63,6 @@ def ensure_directories(report_month: str, mode: str) -> dict[str, Path]:
     }
 
 
-def load_excel_sheet_if_exists(path: Path, sheet_name: str):
-    if path.exists():
-        try:
-            return pd.read_excel(path, sheet_name=sheet_name)
-        except Exception:
-            return None
-    return None
-
-
-def summarize_dataframe(df: pd.DataFrame | None, name: str) -> dict:
-    if df is None:
-        return {
-            "name": name,
-            "exists": False,
-            "rows": 0,
-            "columns": [],
-        }
-
-    return {
-        "name": name,
-        "exists": True,
-        "rows": int(len(df)),
-        "columns": list(df.columns),
-    }
-
-
-def get_report_master(report_master_df: pd.DataFrame | None) -> dict:
-    if report_master_df is None or report_master_df.empty:
-        return {
-            "report_month": "",
-            "report_title": "Monthly Investment Report Draft",
-            "report_subtitle": "Automated Draft",
-            "base_date": "",
-            "issue_code": "",
-        }
-    row = report_master_df.iloc[0].fillna("").to_dict()
-    return row
-
-
-def get_comment_inputs(comment_df: pd.DataFrame | None) -> dict:
-    if comment_df is None or comment_df.empty:
-        return {
-            "market_summary": "시장 코멘트가 없습니다.",
-            "recommendation_comment": "추천 코멘트가 없습니다.",
-            "manager_comment": "매니저 코멘트가 없습니다.",
-        }
-    row = comment_df.iloc[0].fillna("").to_dict()
-    return row
-
-
-def create_asset_chart(asset_df: pd.DataFrame | None, charts_dir: Path) -> str | None:
-    if asset_df is None or asset_df.empty or "asset_name" not in asset_df.columns or "return_1y" not in asset_df.columns:
-        return None
-
-    plot_df = asset_df.copy()
-    plot_df["return_1y"] = pd.to_numeric(plot_df["return_1y"], errors="coerce")
-    plot_df = plot_df.dropna(subset=["return_1y"])
-
-    if plot_df.empty:
-        return None
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.bar(plot_df["asset_name"], plot_df["return_1y"])
-    ax.set_title("Asset Performance - 1Y Return")
-    ax.set_xlabel("Asset")
-    ax.set_ylabel("Return (%)")
-    plt.xticks(rotation=45, ha="right")
-
-    output_path = charts_dir / "asset_return_1y.png"
-    fig.savefig(output_path, bbox_inches="tight", dpi=200)
-    plt.close(fig)
-
-    return str(output_path)
-
-
-def create_fund_chart(fund_df: pd.DataFrame | None, charts_dir: Path) -> str | None:
-    if fund_df is None or fund_df.empty or "fund_name" not in fund_df.columns or "return_1y" not in fund_df.columns:
-        return None
-
-    plot_df = fund_df.copy()
-    plot_df["return_1y"] = pd.to_numeric(plot_df["return_1y"], errors="coerce")
-    plot_df = plot_df.dropna(subset=["return_1y"])
-
-    if plot_df.empty:
-        return None
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.bar(plot_df["fund_name"], plot_df["return_1y"])
-    ax.set_title("Fund Performance - 1Y Return")
-    ax.set_xlabel("Fund")
-    ax.set_ylabel("Return (%)")
-    plt.xticks(rotation=45, ha="right")
-
-    output_path = charts_dir / "fund_return_1y.png"
-    fig.savefig(output_path, bbox_inches="tight", dpi=200)
-    plt.close(fig)
-
-    return str(output_path)
-
-
-def create_allocation_charts(allocation_df: pd.DataFrame | None, charts_dir: Path) -> dict[str, str]:
-    results = {}
-
-    required_cols = {"profile_type", "risky_ratio", "safe_ratio"}
-    if allocation_df is None or allocation_df.empty or not required_cols.issubset(set(allocation_df.columns)):
-        return results
-
-    for _, row in allocation_df.iterrows():
-        profile = str(row["profile_type"])
-        risky = float(row["risky_ratio"])
-        safe = float(row["safe_ratio"])
-
-        fig, ax = plt.subplots(figsize=(6, 6))
-        ax.pie(
-            [risky, safe],
-            labels=["Risky Assets", "Safe Assets"],
-            autopct="%1.1f%%",
-            startangle=90,
-        )
-        ax.set_title(f"{profile} Allocation")
-
-        safe_name = profile.replace("/", "_").replace(" ", "_")
-        output_path = charts_dir / f"allocation_{safe_name}.png"
-        fig.savefig(output_path, bbox_inches="tight", dpi=200)
-        plt.close(fig)
-
-        results[profile] = str(output_path)
-
-    return results
-
-
-def build_report_summary(
-    report_month: str,
-    mode: str,
-    asset_df,
-    fund_df,
-    allocation_df,
-    asset_chart_path,
-    fund_chart_path,
-    allocation_chart_paths,
-) -> str:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    asset_rows = len(asset_df) if asset_df is not None else 0
-    fund_rows = len(fund_df) if fund_df is not None else 0
-    allocation_rows = len(allocation_df) if allocation_df is not None else 0
-
-    lines = [
-        "Monthly Investment Report Draft Summary",
-        "=" * 40,
-        f"Generated at: {now}",
-        f"Report month: {report_month}",
-        f"Mode: {mode}",
-        "",
-        "[Input sheet status]",
-        f"asset_market_perf rows: {asset_rows}",
-        f"fund_performance rows: {fund_rows}",
-        f"allocation_model rows: {allocation_rows}",
-        "",
-        "[Generated charts]",
-        f"asset_return_1y.png: {'created' if asset_chart_path else 'not created'}",
-        f"fund_return_1y.png: {'created' if fund_chart_path else 'not created'}",
-        f"allocation charts created: {len(allocation_chart_paths)}",
-        "",
-    ]
-
-    if allocation_chart_paths:
-        lines.append("[Allocation chart files]")
-        for profile, path in allocation_chart_paths.items():
-            lines.append(f"- {profile}: {path}")
-        lines.append("")
-
-    if asset_df is None or fund_df is None:
-        lines.append("[Warning]")
-        lines.append("Some required sheets are missing or could not be loaded.")
-    else:
-        lines.append("[Status]")
-        lines.append("Excel input sheets loaded successfully and chart generation was attempted.")
-
-    return "\n".join(lines)
-
-
-def build_report_metadata(
-    report_month: str,
-    mode: str,
-    asset_df,
-    fund_df,
-    allocation_df,
-    asset_chart_path,
-    fund_chart_path,
-    allocation_chart_paths,
-) -> dict:
-    asset_summary = summarize_dataframe(asset_df, "asset_market_perf")
-    fund_summary = summarize_dataframe(fund_df, "fund_performance")
-    allocation_summary = summarize_dataframe(allocation_df, "allocation_model")
-
-    return {
-        "generated_at": datetime.now().isoformat(),
-        "report_month": report_month,
-        "mode": mode,
-        "input_excel": str(INPUT_DIR / "monthly_report_input.xlsx"),
-        "sheets": [
-            asset_summary,
-            fund_summary,
-            allocation_summary,
-        ],
-        "charts": {
-            "asset_return_1y": asset_chart_path,
-            "fund_return_1y": fund_chart_path,
-            "allocation_charts": allocation_chart_paths,
-        },
-        "next_steps": [
-            "Add richer PPT layout",
-            "Add commentary text automation",
-            "Add PDF export",
-        ],
-    }
-
-
 def add_textbox(
     slide,
     left,
@@ -282,7 +82,7 @@ def add_textbox(
     p = tf.paragraphs[0]
     p.alignment = align
     run = p.add_run()
-    run.text = text
+    run.text = str(text)
     run.font.size = Pt(font_size)
     run.font.bold = bold
     run.font.color.rgb = font_color
@@ -301,9 +101,9 @@ def add_banner(slide, title_text):
     shape.fill.fore_color.rgb = THEME_BLUE
     shape.line.color.rgb = THEME_BLUE
 
-    text_frame = shape.text_frame
-    text_frame.clear()
-    p = text_frame.paragraphs[0]
+    tf = shape.text_frame
+    tf.clear()
+    p = tf.paragraphs[0]
     p.alignment = PP_ALIGN.LEFT
     run = p.add_run()
     run.text = f"  {title_text}"
@@ -323,11 +123,6 @@ def format_table_text(cell, font_size=9, bold=False, align=PP_ALIGN.CENTER, font
             run.font.color.rgb = font_color
 
 
-def set_column_widths(table, widths_in_inches):
-    for idx, width in enumerate(widths_in_inches):
-        table.columns[idx].width = Inches(width)
-
-
 def style_table_header(cell):
     cell.fill.solid()
     cell.fill.fore_color.rgb = THEME_BLUE
@@ -340,224 +135,455 @@ def style_table_body(cell, align):
     format_table_text(cell, font_size=9, bold=False, align=align, font_color=THEME_DARK)
 
 
-def add_asset_table_slide(prs, asset_df: pd.DataFrame | None):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_banner(slide, "Asset Performance Table")
+def set_column_widths(table, widths_in_inches):
+    for idx, width in enumerate(widths_in_inches):
+        table.columns[idx].width = Inches(width)
 
-    required_cols = {"asset_name", "return_1m", "return_3m", "return_1y", "return_3y"}
-    if asset_df is None or asset_df.empty or not required_cols.issubset(set(asset_df.columns)):
-        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset table not available")
+
+def safe_load_workbook(path: Path):
+    if not path.exists():
+        return None
+    try:
+        return openpyxl.load_workbook(path, data_only=True)
+    except Exception:
+        return None
+
+
+def safe_read_docx(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        doc = Document(path)
+        texts = []
+        for p in doc.paragraphs:
+            txt = (p.text or "").strip()
+            if txt:
+                texts.append(txt)
+        return "\n".join(texts)
+    except Exception:
+        return ""
+
+
+def summarize_source_status():
+    status = []
+    for key, path in SOURCE_FILES.items():
+        status.append({
+            "key": key,
+            "path": str(path),
+            "exists": path.exists(),
+        })
+    return status
+
+
+def get_cover_info():
+    wb = safe_load_workbook(SOURCE_FILES["cover"])
+    if wb is None or "표지" not in wb.sheetnames:
+        return {
+            "title": "동양생명 월간 투자전략",
+            "subtitle": "변액보험 월간 투자전략 GUIDE",
+            "notices": [],
+        }
+
+    ws = wb["표지"]
+    notices = []
+    for r in [31, 32, 34]:
+        v = ws.cell(r, 2).value
+        if v:
+            notices.append(str(v))
+
+    return {
+        "title": "동양생명 월간 투자전략",
+        "subtitle": "변액보험 월간 투자전략 GUIDE",
+        "notices": notices,
+    }
+
+
+def get_market_data():
+    wb = safe_load_workbook(SOURCE_FILES["market_main"])
+    if wb is None or "월간투자전략" not in wb.sheetnames:
+        return {
+            "base_date": "",
+            "table": pd.DataFrame(),
+            "market_comment": "",
+        }
+
+    ws = wb["월간투자전략"]
+
+    base_date = ws.cell(4, 12).value or ""
+    market_comment = ws.cell(21, 3).value or ""
+
+    rows = []
+    for r in range(7, 16):
+        asset_group = ws.cell(r, 3).value
+        asset_name = ws.cell(r, 4).value
+        return_1m = ws.cell(r, 8).value
+        return_3m = ws.cell(r, 9).value
+        return_6m = ws.cell(r, 10).value
+        return_1y = ws.cell(r, 11).value
+        return_3y = ws.cell(r, 12).value
+
+        if asset_name:
+            rows.append({
+                "asset_group": asset_group,
+                "asset_name": asset_name,
+                "return_1m": return_1m,
+                "return_3m": return_3m,
+                "return_6m": return_6m,
+                "return_1y": return_1y,
+                "return_3y": return_3y,
+            })
+
+    return {
+        "base_date": str(base_date),
+        "table": pd.DataFrame(rows),
+        "market_comment": str(market_comment),
+    }
+
+
+def get_analyst_comment():
+    text = safe_read_docx(SOURCE_FILES["analyst_comment"])
+    return text if text else "애널리스트 코멘트 파일을 읽지 못했습니다. (.doc 파일이면 .docx로 변환 필요)"
+
+
+def get_manager_comment():
+    text = safe_read_docx(SOURCE_FILES["manager_comment"])
+    return text if text else "매니저 코멘트 파일을 읽지 못했습니다."
+
+
+def get_allocation_data():
+    wb = safe_load_workbook(SOURCE_FILES["allocation"])
+    if wb is None or "월간투자전략" not in wb.sheetnames:
+        return {
+            "reason": "",
+            "current_alloc": pd.DataFrame(),
+        }
+
+    ws = wb["월간투자전략"]
+    reason = ws.cell(31, 3).value or ""
+
+    rows = []
+    for r in range(19, 23):
+        asset_name = ws.cell(r, 19).value
+        weight = ws.cell(r, 20).value
+        if asset_name and weight is not None:
+            rows.append({
+                "asset_name": str(asset_name),
+                "weight": float(weight),
+            })
+
+    return {
+        "reason": str(reason),
+        "current_alloc": pd.DataFrame(rows),
+    }
+
+
+def get_recommended_fund_table():
+    wb = safe_load_workbook(SOURCE_FILES["funds_2"])
+    if wb is None or "월간투자전략" not in wb.sheetnames:
+        return pd.DataFrame()
+
+    ws = wb["월간투자전략"]
+    rows = []
+    for r in range(7, 17):
+        fund_name = ws.cell(r, 4).value
+        if fund_name:
+            rows.append({
+                "유형": ws.cell(r, 3).value,
+                "펀드명": fund_name,
+                "순자산": ws.cell(r, 6).value,
+                "설정일": ws.cell(r, 7).value,
+                "펀드등급": ws.cell(r, 8).value,
+                "1Y": ws.cell(r, 9).value,
+                "2Y": ws.cell(r, 10).value,
+                "3Y": ws.cell(r, 11).value,
+                "YTD": ws.cell(r, 12).value,
+                "설정이후": ws.cell(r, 13).value,
+            })
+    return pd.DataFrame(rows)
+
+
+def get_performance_table():
+    wb = safe_load_workbook(SOURCE_FILES["performance"])
+    if wb is None or "월간투자전략" not in wb.sheetnames:
+        return pd.DataFrame()
+
+    ws = wb["월간투자전략"]
+    rows = []
+    for r in range(17, 29):
+        fund_name = ws.cell(r, 4).value
+        if fund_name:
+            rows.append({
+                "자산군": ws.cell(r, 2).value,
+                "스타일": ws.cell(r, 3).value,
+                "펀드명": fund_name,
+                "순자산": ws.cell(r, 5).value,
+                "주식비중": ws.cell(r, 6).value,
+                "1M": ws.cell(r, 7).value,
+                "3M": ws.cell(r, 8).value,
+                "6M": ws.cell(r, 9).value,
+                "1Y": ws.cell(r, 10).value,
+            })
+    return pd.DataFrame(rows)
+
+
+def get_manager_status_table():
+    wb = safe_load_workbook(SOURCE_FILES["managers"])
+    if wb is None or "운용사현황" not in wb.sheetnames:
+        return pd.DataFrame()
+
+    ws = wb["운용사현황"]
+    rows = []
+    for r in range(4, 14):
+        fund_name = ws.cell(r, 3).value
+        if fund_name:
+            rows.append({
+                "펀드명": fund_name,
+                "운용사": ws.cell(r, 4).value,
+                "수탁회사": ws.cell(r, 5).value,
+                "사무관리회사": ws.cell(r, 6).value,
+            })
+    return pd.DataFrame(rows)
+
+
+def create_asset_chart(asset_df: pd.DataFrame, charts_dir: Path):
+    if asset_df.empty:
+        return None
+
+    plot_df = asset_df.copy()
+    plot_df["return_1y"] = pd.to_numeric(plot_df["return_1y"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["return_1y"])
+    if plot_df.empty:
+        return None
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.bar(plot_df["asset_name"], plot_df["return_1y"])
+    ax.set_title("주요 자산 1년 수익률")
+    ax.set_xlabel("자산")
+    ax.set_ylabel("수익률(%)")
+    plt.xticks(rotation=45, ha="right")
+
+    output_path = charts_dir / "asset_return_1y.png"
+    fig.savefig(output_path, bbox_inches="tight", dpi=200)
+    plt.close(fig)
+    return str(output_path)
+
+
+def create_fund_chart(fund_df: pd.DataFrame, charts_dir: Path):
+    if fund_df.empty:
+        return None
+
+    plot_df = fund_df.copy()
+    plot_df["1Y"] = pd.to_numeric(plot_df["1Y"], errors="coerce")
+    plot_df = plot_df.dropna(subset=["1Y"])
+    if plot_df.empty:
+        return None
+
+    plot_df = plot_df.head(8)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.bar(plot_df["펀드명"], plot_df["1Y"])
+    ax.set_title("추천 펀드 1년 수익률")
+    ax.set_xlabel("펀드")
+    ax.set_ylabel("수익률(%)")
+    plt.xticks(rotation=45, ha="right")
+
+    output_path = charts_dir / "fund_return_1y.png"
+    fig.savefig(output_path, bbox_inches="tight", dpi=200)
+    plt.close(fig)
+    return str(output_path)
+
+
+def create_allocation_chart(allocation_df: pd.DataFrame, charts_dir: Path):
+    if allocation_df.empty:
+        return None
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.pie(
+        allocation_df["weight"],
+        labels=allocation_df["asset_name"],
+        autopct="%1.1f%%",
+        startangle=90,
+    )
+    ax.set_title("당월 자산배분")
+
+    output_path = charts_dir / "allocation_current.png"
+    fig.savefig(output_path, bbox_inches="tight", dpi=200)
+    plt.close(fig)
+    return str(output_path)
+
+
+def prepare_table_df(df: pd.DataFrame, keep_columns: list[str], rename_map: dict[str, str], max_rows=6):
+    if df.empty:
+        return pd.DataFrame()
+
+    display_df = df.copy()
+    display_df = display_df[keep_columns].head(max_rows)
+    display_df = display_df.rename(columns=rename_map)
+
+    for col in display_df.columns:
+        if col not in ["자산명", "펀드명", "자산군", "스타일", "운용사", "수탁회사", "사무관리회사", "유형", "펀드등급", "설정일"]:
+            display_df[col] = pd.to_numeric(display_df[col], errors="ignore")
+            display_df[col] = display_df[col].map(
+                lambda x: f"{x:.2f}" if isinstance(x, (int, float)) else str(x)
+            )
+    return display_df
+
+
+def add_table_slide(prs, title, df: pd.DataFrame, widths):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, title)
+
+    if df.empty:
+        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "표 데이터가 없습니다.")
         return
 
-    display_df = asset_df.copy()
-    keep_columns = [
-        "asset_name",
-        "return_1m",
-        "return_3m",
-        "return_1y",
-        "return_3y",
-    ]
-    display_df = display_df[keep_columns].head(5)
-
-    display_df = display_df.rename(columns={
-        "asset_name": "자산명",
-        "return_1m": "1M",
-        "return_3m": "3M",
-        "return_1y": "1Y",
-        "return_3y": "3Y",
-    })
-
-    for col in ["1M", "3M", "1Y", "3Y"]:
-        if col in display_df.columns:
-            display_df[col] = pd.to_numeric(display_df[col], errors="coerce").map(
-                lambda x: f"{x:.2f}" if pd.notnull(x) else ""
-            )
-
-    rows = len(display_df) + 1
-    cols = len(display_df.columns)
-
+    rows = len(df) + 1
+    cols = len(df.columns)
     table = slide.shapes.add_table(
         rows,
         cols,
         Inches(0.4),
-        Inches(1.4),
+        Inches(1.3),
         Inches(8.8),
-        Inches(3.2),
+        Inches(3.4),
     ).table
 
-    set_column_widths(table, [3.2, 1.2, 1.2, 1.2, 1.2])
+    set_column_widths(table, widths)
 
-    for c, col_name in enumerate(display_df.columns):
+    for c, col_name in enumerate(df.columns):
         table.cell(0, c).text = str(col_name)
         style_table_header(table.cell(0, c))
 
-    for r in range(len(display_df)):
+    for r in range(len(df)):
         for c in range(cols):
-            value = str(display_df.iloc[r, c])
+            value = str(df.iloc[r, c])
             table.cell(r + 1, c).text = value
             align = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
-            style_table_body(table.cell(r + 1, c), align=align)
+            style_table_body(table.cell(r + 1, c), align)
 
 
-def add_fund_table_slide(prs, fund_df: pd.DataFrame | None):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_banner(slide, "Fund Performance Table")
+def build_summary_text(month, source_status, market_comment, analyst_text, manager_text):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    existing_count = sum(1 for item in source_status if item["exists"])
+    total_count = len(source_status)
 
-    required_cols = {"fund_name", "risk_grade", "return_1y", "return_2y", "return_3y"}
-    if fund_df is None or fund_df.empty or not required_cols.issubset(set(fund_df.columns)):
-        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund table not available")
-        return
-
-    display_df = fund_df.copy()
-    keep_columns = [
-        "fund_name",
-        "risk_grade",
-        "return_1y",
-        "return_2y",
-        "return_3y",
+    lines = [
+        "Monthly Investment Report Draft Summary",
+        "=" * 40,
+        f"Generated at: {now}",
+        f"Report month: {month}",
+        "",
+        f"Source files found: {existing_count}/{total_count}",
+        "",
+        "[시장 요약]",
+        str(market_comment)[:1200],
+        "",
+        "[애널리스트 코멘트 요약]",
+        str(analyst_text)[:1200],
+        "",
+        "[매니저 코멘트 요약]",
+        str(manager_text)[:1200],
     ]
-    display_df = display_df[keep_columns].head(5)
-
-    display_df = display_df.rename(columns={
-        "fund_name": "펀드명",
-        "risk_grade": "위험등급",
-        "return_1y": "1Y",
-        "return_2y": "2Y",
-        "return_3y": "3Y",
-    })
-
-    for col in ["1Y", "2Y", "3Y"]:
-        if col in display_df.columns:
-            display_df[col] = pd.to_numeric(display_df[col], errors="coerce").map(
-                lambda x: f"{x:.2f}" if pd.notnull(x) else ""
-            )
-
-    rows = len(display_df) + 1
-    cols = len(display_df.columns)
-
-    table = slide.shapes.add_table(
-        rows,
-        cols,
-        Inches(0.4),
-        Inches(1.4),
-        Inches(8.8),
-        Inches(3.2),
-    ).table
-
-    set_column_widths(table, [4.2, 1.6, 1.0, 1.0, 1.0])
-
-    for c, col_name in enumerate(display_df.columns):
-        table.cell(0, c).text = str(col_name)
-        style_table_header(table.cell(0, c))
-
-    for r in range(len(display_df)):
-        for c in range(cols):
-            value = str(display_df.iloc[r, c])
-            table.cell(r + 1, c).text = value
-            align = PP_ALIGN.LEFT if c == 0 else PP_ALIGN.CENTER
-            style_table_body(table.cell(r + 1, c), align=align)
+    return "\n".join(lines)
 
 
 def create_pptx_report(
     report_month: str,
-    mode: str,
     paths: dict[str, Path],
-    summary_text: str,
-    asset_df,
-    fund_df,
+    cover_info: dict,
+    market_info: dict,
+    analyst_text: str,
+    manager_text: str,
+    allocation_reason: str,
     asset_chart_path: str | None,
     fund_chart_path: str | None,
-    allocation_chart_paths: dict[str, str],
-    report_master: dict,
-    comment_inputs: dict,
-) -> Path:
+    allocation_chart_path: str | None,
+    fund_table: pd.DataFrame,
+    perf_table: pd.DataFrame,
+    manager_status_table: pd.DataFrame,
+):
     prs = Presentation()
 
+    # Cover
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_banner(slide, report_master.get("report_title", "Monthly Investment Report Draft"))
-    add_textbox(
-        slide, 0.8, 1.5, 8.5, 0.8,
-        report_master.get("report_title", "월간 투자전략 보고서"),
-        font_size=26, bold=True
-    )
-    add_textbox(
-        slide, 0.8, 2.2, 8.5, 0.5,
-        report_master.get("report_subtitle", "Automated Draft"),
-        font_size=16
-    )
-    add_textbox(
-        slide, 0.8, 2.8, 4.5, 0.4,
-        f"기준월: {report_month}",
-        font_size=16
-    )
-    add_textbox(
-        slide, 0.8, 3.2, 4.5, 0.4,
-        f"기준일: {report_master.get('base_date', '')}",
-        font_size=16
-    )
-    add_textbox(
-        slide, 0.8, 3.6, 4.5, 0.4,
-        f"발행코드: {report_master.get('issue_code', '')}",
-        font_size=16
-    )
+    add_banner(slide, cover_info.get("title", "동양생명 월간 투자전략"))
+    add_textbox(slide, 0.8, 1.4, 8.5, 0.7, cover_info.get("title", ""), font_size=24, bold=True)
+    add_textbox(slide, 0.8, 2.1, 8.5, 0.4, cover_info.get("subtitle", ""), font_size=15)
+    add_textbox(slide, 0.8, 2.7, 4.0, 0.35, f"기준월: {report_month}", font_size=15)
+    add_textbox(slide, 0.8, 3.1, 5.5, 0.35, f"기준일: {market_info.get('base_date', '')}", font_size=15)
 
+    notice_y = 4.0
+    for notice in cover_info.get("notices", [])[:3]:
+        add_textbox(slide, 0.8, notice_y, 8.4, 0.5, str(notice), font_size=9)
+        notice_y += 0.45
+
+    # Market summary
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_banner(slide, "Execution Summary")
+    add_banner(slide, "1. 주요 자산 시장 점검")
+    combined_market = f"[시장 코멘트]\n{market_info.get('market_comment', '')}"
+    add_textbox(slide, 0.6, 1.0, 8.8, 2.2, combined_market, font_size=11)
 
-    summary_preview = "\n".join(summary_text.splitlines()[:10])
-    market_summary = comment_inputs.get("market_summary", "")
-    recommendation_comment = comment_inputs.get("recommendation_comment", "")
-    manager_comment = comment_inputs.get("manager_comment", "")
-
-    combined_text = (
-        summary_preview
-        + "\n\n[시장 요약]\n" + market_summary
-        + "\n\n[추천 포인트]\n" + recommendation_comment
-        + "\n\n[매니저 코멘트]\n" + manager_comment
-    )
-
-    add_textbox(slide, 0.6, 1.2, 8.8, 4.8, combined_text, font_size=11)
-
-    add_asset_table_slide(prs, asset_df)
-    add_fund_table_slide(prs, fund_df)
-
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_banner(slide, "Asset Performance Chart")
     if asset_chart_path and Path(asset_chart_path).exists():
-        slide.shapes.add_picture(asset_chart_path, Inches(0.6), Inches(1.2), width=Inches(8.5))
-    else:
-        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Asset chart not available")
+        slide.shapes.add_picture(asset_chart_path, Inches(0.8), Inches(3.1), width=Inches(8.0))
 
+    # Analyst comment
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_banner(slide, "Fund Performance Chart")
+    add_banner(slide, "2. 애널리스트 코멘트")
+    add_textbox(slide, 0.6, 1.0, 8.8, 5.5, analyst_text[:2200], font_size=11)
+
+    # Manager comment
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "3. 매니저 코멘트")
+    add_textbox(slide, 0.6, 1.0, 8.8, 5.5, manager_text[:2200], font_size=11)
+
+    # Allocation
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "4. 투자자별 자산배분 전략")
+    add_textbox(slide, 0.6, 1.0, 4.3, 2.3, allocation_reason[:1200], font_size=10)
+    if allocation_chart_path and Path(allocation_chart_path).exists():
+        slide.shapes.add_picture(allocation_chart_path, Inches(5.2), Inches(1.2), width=Inches(3.2))
+
+    # Fund performance table
+    fund_display = prepare_table_df(
+        fund_table,
+        keep_columns=["유형", "펀드명", "펀드등급", "1Y", "2Y", "3Y"],
+        rename_map={},
+        max_rows=6,
+    )
+    add_table_slide(prs, "5. 추천 펀드 수익률 현황", fund_display, [1.3, 3.4, 1.2, 0.9, 0.9, 0.9])
+
+    # Fund chart
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_banner(slide, "6. 추천 펀드 차트")
     if fund_chart_path and Path(fund_chart_path).exists():
-        slide.shapes.add_picture(fund_chart_path, Inches(0.6), Inches(1.2), width=Inches(8.5))
+        slide.shapes.add_picture(fund_chart_path, Inches(0.8), Inches(1.2), width=Inches(8.0))
     else:
-        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "Fund chart not available")
+        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "펀드 차트가 없습니다.")
 
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_banner(slide, "Allocation Strategy")
+    # Variable fund performance
+    perf_display = prepare_table_df(
+        perf_table,
+        keep_columns=["자산군", "스타일", "펀드명", "1M", "3M", "1Y"],
+        rename_map={},
+        max_rows=6,
+    )
+    add_table_slide(prs, "7. 변액펀드 성과현황", perf_display, [1.2, 1.4, 3.0, 0.9, 0.9, 0.9])
 
-    positions = [
-        (0.3, 1.5),
-        (3.4, 1.5),
-        (6.5, 1.5),
-    ]
-
-    items = list(allocation_chart_paths.items())[:3]
-    for (profile, chart_path), (left, top) in zip(items, positions):
-        add_textbox(slide, left, top - 0.35, 2.5, 0.35, profile, font_size=12, bold=True, align=PP_ALIGN.CENTER)
-        if Path(chart_path).exists():
-            slide.shapes.add_picture(chart_path, Inches(left), Inches(top), width=Inches(2.5))
-        else:
-            add_textbox(slide, left, top, 2.5, 0.8, "Chart not available", font_size=12)
+    # Manager status
+    manager_display = prepare_table_df(
+        manager_status_table,
+        keep_columns=["펀드명", "운용사", "수탁회사", "사무관리회사"],
+        rename_map={},
+        max_rows=6,
+    )
+    add_table_slide(prs, "8. 펀드별 위탁운용사 현황", manager_display, [2.0, 3.2, 1.6, 1.8])
 
     output_path = paths["report_root"] / "monthly_report_draft.pptx"
     prs.save(output_path)
     return output_path
 
 
-def write_outputs(paths: dict[str, Path], summary_text: str, metadata: dict, pptx_path: Path) -> None:
+def write_outputs(paths: dict[str, Path], summary_text: str, metadata: dict, pptx_path: Path):
     summary_path = paths["report_root"] / "report_summary.txt"
     metadata_path = paths["report_root"] / "report_metadata.json"
 
@@ -577,55 +603,61 @@ def main():
     args = parse_args()
     paths = ensure_directories(args.month, args.mode)
 
-    excel_path = INPUT_DIR / "monthly_report_input.xlsx"
+    source_status = summarize_source_status()
 
-    asset_df = load_excel_sheet_if_exists(excel_path, "asset_market_perf")
-    fund_df = load_excel_sheet_if_exists(excel_path, "fund_performance")
-    allocation_df = load_excel_sheet_if_exists(excel_path, "allocation_model")
-    report_master_df = load_excel_sheet_if_exists(excel_path, "report_master")
-    comment_df = load_excel_sheet_if_exists(excel_path, "comment_input")
+    cover_info = get_cover_info()
+    market_info = get_market_data()
+    analyst_text = get_analyst_comment()
+    manager_text = get_manager_comment()
+    allocation_info = get_allocation_data()
+    fund_table = get_recommended_fund_table()
+    perf_table = get_performance_table()
+    manager_status_table = get_manager_status_table()
 
-    report_master = get_report_master(report_master_df)
-    comment_inputs = get_comment_inputs(comment_df)
+    asset_chart_path = create_asset_chart(market_info["table"], paths["charts_dir"])
+    fund_chart_path = create_fund_chart(fund_table, paths["charts_dir"])
+    allocation_chart_path = create_allocation_chart(allocation_info["current_alloc"], paths["charts_dir"])
 
-    asset_chart_path = create_asset_chart(asset_df, paths["charts_dir"])
-    fund_chart_path = create_fund_chart(fund_df, paths["charts_dir"])
-    allocation_chart_paths = create_allocation_charts(allocation_df, paths["charts_dir"])
-
-    summary_text = build_report_summary(
+    summary_text = build_summary_text(
         args.month,
-        args.mode,
-        asset_df,
-        fund_df,
-        allocation_df,
-        asset_chart_path,
-        fund_chart_path,
-        allocation_chart_paths,
+        source_status,
+        market_info.get("market_comment", ""),
+        analyst_text,
+        manager_text,
     )
 
-    metadata = build_report_metadata(
-        args.month,
-        args.mode,
-        asset_df,
-        fund_df,
-        allocation_df,
-        asset_chart_path,
-        fund_chart_path,
-        allocation_chart_paths,
-    )
+    metadata = {
+        "generated_at": datetime.now().isoformat(),
+        "report_month": args.month,
+        "mode": args.mode,
+        "source_status": source_status,
+        "tables": {
+            "market_rows": len(market_info["table"]),
+            "fund_rows": len(fund_table),
+            "performance_rows": len(perf_table),
+            "manager_status_rows": len(manager_status_table),
+        },
+        "charts": {
+            "asset_chart": asset_chart_path,
+            "fund_chart": fund_chart_path,
+            "allocation_chart": allocation_chart_path,
+        },
+    }
 
     pptx_path = create_pptx_report(
-        args.month,
-        args.mode,
-        paths,
-        summary_text,
-        asset_df,
-        fund_df,
-        asset_chart_path,
-        fund_chart_path,
-        allocation_chart_paths,
-        report_master,
-        comment_inputs,
+        report_month=args.month,
+        paths=paths,
+        cover_info=cover_info,
+        market_info=market_info,
+        analyst_text=analyst_text,
+        manager_text=manager_text,
+        allocation_reason=allocation_info.get("reason", ""),
+        asset_chart_path=asset_chart_path,
+        fund_chart_path=fund_chart_path,
+        allocation_chart_path=allocation_chart_path,
+        fund_table=fund_table,
+        perf_table=perf_table,
+        manager_status_table=manager_status_table,
     )
 
     write_outputs(paths, summary_text, metadata, pptx_path)
