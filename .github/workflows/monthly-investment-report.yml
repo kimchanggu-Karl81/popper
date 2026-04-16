@@ -25,7 +25,7 @@ on:
           - monthly-report-prod
 
   schedule:
-    - cron: "0 0 1 * *"   # 매월 1일 09:00 KST (UTC 00:00)
+    - cron: "0 0 1 * *"   # 매월 1일 09:00 KST
 
 concurrency:
   group: monthly-investment-report-${{ github.event.inputs.report_month || 'scheduled' }}-${{ github.event.inputs.mode || 'draft' }}
@@ -45,7 +45,6 @@ jobs:
       PYTHONUNBUFFERED: "1"
       REPORT_MONTH: ${{ github.event.inputs.report_month || '' }}
       REPORT_MODE: ${{ github.event.inputs.mode || 'draft' }}
-      OUTPUT_ROOT: data/output/monthly-report
       OPENAI_API_KEY: ${{ secrets.MONTHLY_REPORT_OPENAI_API_KEY }}
 
     steps:
@@ -60,7 +59,7 @@ jobs:
       - name: Show runner info
         shell: powershell
         run: |
-          Write-Host "Runner: $env:RUNNER_NAME"
+          Write-Host "Runner: GitHub-hosted"
           Write-Host "OS: $env:RUNNER_OS"
           Write-Host "Arch: $env:RUNNER_ARCH"
           python --version
@@ -72,7 +71,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Set report month for scheduled run
+      - name: Set report month
         shell: powershell
         run: |
           if ([string]::IsNullOrWhiteSpace($env:REPORT_MONTH)) {
@@ -81,6 +80,7 @@ jobs:
             "REPORT_MONTH=$reportMonth" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             Write-Host "Scheduled run detected. REPORT_MONTH set to $reportMonth"
           } else {
+            "REPORT_MONTH=$env:REPORT_MONTH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             Write-Host "Manual run detected. REPORT_MONTH=$env:REPORT_MONTH"
           }
 
@@ -112,4 +112,5 @@ jobs:
           name: monthly-investment-report-${{ env.REPORT_MONTH }}-${{ env.REPORT_MODE }}
           path: data/output/monthly-report/${{ env.REPORT_MONTH }}/**
           if-no-files-found: error
+          retention-days: 14
           retention-days: 14
