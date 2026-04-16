@@ -34,7 +34,7 @@ concurrency:
 jobs:
   build-report:
     name: Build monthly investment report
-    runs-on: [self-hosted, windows, x64, monthly-report]
+    runs-on: windows-latest
     environment: ${{ github.event.inputs.environment_name || 'monthly-report-dev' }}
 
     permissions:
