@@ -420,12 +420,18 @@ def prepare_table_df(df: pd.DataFrame, keep_columns: list[str], rename_map: dict
     display_df = display_df[keep_columns].head(max_rows)
     display_df = display_df.rename(columns=rename_map)
 
+    text_columns = ["자산명", "펀드명", "자산군", "스타일", "운용사", "수탁회사", "사무관리회사", "유형", "펀드등급", "설정일"]
+
     for col in display_df.columns:
-        if col not in ["자산명", "펀드명", "자산군", "스타일", "운용사", "수탁회사", "사무관리회사", "유형", "펀드등급", "설정일"]:
-            display_df[col] = pd.to_numeric(display_df[col], errors="ignore")
-            display_df[col] = display_df[col].map(
-                lambda x: f"{x:.2f}" if isinstance(x, (int, float)) else str(x)
-            )
+        if col not in text_columns:
+            try:
+                numeric_series = pd.to_numeric(display_df[col])
+                display_df[col] = numeric_series.map(
+                    lambda x: f"{x:.2f}" if pd.notnull(x) else ""
+                )
+            except Exception:
+                display_df[col] = display_df[col].astype(str)
+
     return display_df
 
 
