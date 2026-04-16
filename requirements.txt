@@ -3,3 +3,4 @@ openpyxl
 python-pptx
 matplotlib
 pydantic
+python-docx
