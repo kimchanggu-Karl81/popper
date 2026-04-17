@@ -1,6 +1,5 @@
 import argparse
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -310,6 +309,41 @@ def add_chart_comment_box(slide, left, top, width, height, title, body):
     )
 
 
+def add_summary_comment_box(slide, left, top, width, height, title, body):
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        Inches(left),
+        Inches(top),
+        Inches(width),
+        Inches(height),
+    )
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = RGBColor(248, 250, 253)
+    shape.line.color.rgb = RGBColor(200, 210, 225)
+
+    add_textbox(
+        slide,
+        left + 0.12,
+        top + 0.08,
+        width - 0.24,
+        0.24,
+        title,
+        font_size=10,
+        bold=True,
+        font_color=THEME_BLUE,
+    )
+    add_textbox(
+        slide,
+        left + 0.12,
+        top + 0.36,
+        width - 0.24,
+        height - 0.44,
+        body,
+        font_size=9,
+        font_color=THEME_DARK,
+    )
+
+
 def format_table_text(cell, font_size=9, bold=False, align=PP_ALIGN.CENTER, font_color=THEME_DARK):
     tf = cell.text_frame
     tf.vertical_anchor = MSO_ANCHOR.MIDDLE
@@ -337,37 +371,6 @@ def style_table_body(cell, align):
 def set_column_widths(table, widths_in_inches):
     for idx, width in enumerate(widths_in_inches):
         table.columns[idx].width = Inches(width)
-
-
-def find_keyword_positions(ws, keyword: str):
-    hits = []
-    for row in ws.iter_rows():
-        for cell in row:
-            value = cell.value
-            if value is None:
-                continue
-            text = str(value).strip()
-            if keyword in text:
-                hits.append((cell.row, cell.column, text))
-    return hits
-
-
-def collect_following_paragraphs(ws, start_row: int, start_col: int, stop_keywords=None, max_rows=20):
-    stop_keywords = stop_keywords or []
-    lines = []
-    for r in range(start_row + 1, min(start_row + max_rows, ws.max_row) + 1):
-        row_texts = []
-        for c in range(max(1, start_col - 1), min(ws.max_column, start_col + 12) + 1):
-            val = ws.cell(r, c).value
-            if val is not None and str(val).strip():
-                row_texts.append(str(val).strip())
-        if not row_texts:
-            continue
-        joined = " ".join(row_texts)
-        if any(k in joined for k in stop_keywords):
-            break
-        lines.append(joined)
-    return "\n".join(lines).strip()
 
 
 def normalize_perf_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -416,7 +419,6 @@ def get_market_perf_table_from_returns_file():
     if not path.exists():
         return pd.DataFrame()
 
-    # 1) pandas로 시트 전체 순회
     try:
         xl = pd.ExcelFile(path)
         for sheet in xl.sheet_names:
@@ -430,7 +432,6 @@ def get_market_perf_table_from_returns_file():
     except Exception:
         pass
 
-    # 2) fallback: market_main 수동 읽기
     return pd.DataFrame()
 
 
@@ -504,54 +505,15 @@ def get_market_comments():
 
     base_date = ws.cell(4, 12).value or ""
 
-    global_hits = find_keyword_positions(ws, "글로벌 경기 전망")
-    stock_hits = find_keyword_positions(ws, "국내주식")
-    bond_hits = find_keyword_positions(ws, "국내채권")
-
-    global_text = ""
-    stock_text = ""
-    bond_text = ""
-
-    if global_hits:
-        r, c, _ = global_hits[0]
-        global_text = collect_following_paragraphs(
-            ws,
-            r,
-            c,
-            stop_keywords=["국내주식", "국내채권", "4월 투자포인트"],
-            max_rows=12,
-        )
-
-    # 국내주식/국내채권은 페이지 3 스타일 문구가 들어갈 가능성이 높아 넓게 탐색
-    if stock_hits:
-        r, c, _ = stock_hits[-1]
-        stock_text = collect_following_paragraphs(
-            ws,
-            r,
-            c,
-            stop_keywords=["국내채권", "글로벌 경기 전망", "애널리스트 코멘트"],
-            max_rows=16,
-        )
-
-    if bond_hits:
-        r, c, _ = bond_hits[-1]
-        bond_text = collect_following_paragraphs(
-            ws,
-            r,
-            c,
-            stop_keywords=["국내주식", "애널리스트 코멘트", "매니저 코멘트"],
-            max_rows=16,
-        )
-
-    # fallback
-    if not global_text:
-        global_text = str(ws.cell(21, 3).value or "")
+    global_text = str(ws.cell(21, 3).value or "")
+    stock_text = str(ws.cell(26, 3).value or "")
+    bond_text = str(ws.cell(31, 3).value or "")
 
     return {
         "base_date": str(base_date),
-        "global_outlook": str(global_text),
-        "domestic_stocks": str(stock_text),
-        "domestic_bonds": str(bond_text),
+        "global_outlook": global_text,
+        "domestic_stocks": stock_text,
+        "domestic_bonds": bond_text,
     }
 
 
@@ -797,7 +759,7 @@ def add_table_slide(prs, report_month: str, section_no: str, title: str, df: pd.
         Inches(0.35),
         Inches(top),
         Inches(7.45),
-        Inches(4.2),
+        Inches(3.55),
     ).table
 
     set_column_widths(table, widths)
@@ -933,12 +895,12 @@ def create_pptx_report(
     )
     page_no += 1
 
-    # 2. Key summary + main asset performance table
+    # 2. Key summary
     perf_display = prepare_table_df(
         market_perf_df,
         keep_columns=["구분", "자산명", "1개월", "3개월", "6개월", "1년", "3년"],
         rename_map={},
-        max_rows=12,
+        max_rows=10,
     )
     slide = add_table_slide(
         prs,
@@ -946,23 +908,47 @@ def create_pptx_report(
         "01",
         "핵심 요약",
         perf_display,
-        [0.8, 1.8, 0.75, 0.75, 0.75, 0.75, 0.75],
+        [0.75, 1.55, 0.72, 0.72, 0.72, 0.72, 0.72],
         top=2.35
     )
+
     add_textbox(
         slide,
         0.55,
-        9.0,
+        6.18,
         7.1,
-        0.6,
+        0.25,
         f"기준일: {market_comments.get('base_date', '')} / 주요 자산별 성과 요약",
-        font_size=9,
+        font_size=8.8,
         font_color=THEME_DARK,
     )
+
+    analyst_summary = str(analyst_text).replace("\n", " ")[:260]
+    manager_summary = str(manager_text).replace("\n", " ")[:260]
+
+    add_summary_comment_box(
+        slide,
+        0.50,
+        6.55,
+        3.45,
+        2.05,
+        "애널리스트 코멘트 요약",
+        analyst_summary,
+    )
+    add_summary_comment_box(
+        slide,
+        4.10,
+        6.55,
+        3.45,
+        2.05,
+        "펀드매니저 코멘트 요약",
+        manager_summary,
+    )
+
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 3. Major asset market inspection page with 3 comments + charts
+    # 3. Market inspection
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_report_header(slide, report_month, "02", "주요 자산 시장 점검")
 
@@ -1061,7 +1047,7 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 9. Performance table
+    # 9. Performance
     perf_table_display = prepare_table_df(
         perf_table,
         keep_columns=["자산군", "펀드명", "1M", "3M", "1Y"],
