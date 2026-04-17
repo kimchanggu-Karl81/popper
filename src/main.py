@@ -373,6 +373,61 @@ def set_column_widths(table, widths_in_inches):
         table.columns[idx].width = Inches(width)
 
 
+def find_keyword_positions(ws, keyword: str):
+    hits = []
+    for row in ws.iter_rows():
+        for cell in row:
+            val = cell.value
+            if val is None:
+                continue
+            text = str(val).strip()
+            if keyword in text:
+                hits.append((cell.row, cell.column, text))
+    return hits
+
+
+def row_joined_text(ws, row_idx: int):
+    vals = []
+    for c in range(1, ws.max_column + 1):
+        v = ws.cell(row_idx, c).value
+        if v is not None and str(v).strip():
+            vals.append(str(v).strip())
+    return " ".join(vals).strip()
+
+
+def extract_block_below_keyword(ws, keyword: str, stop_keywords=None, max_rows=12):
+    stop_keywords = stop_keywords or []
+
+    hits = find_keyword_positions(ws, keyword)
+    if not hits:
+        return ""
+
+    # 마지막 매칭을 우선 사용
+    start_row, start_col, hit_text = hits[-1]
+
+    lines = []
+
+    # 같은 행 오른쪽 텍스트도 우선 수집
+    same_row_vals = []
+    for c in range(start_col + 1, min(ws.max_column, start_col + 12) + 1):
+        v = ws.cell(start_row, c).value
+        if v is not None and str(v).strip():
+            same_row_vals.append(str(v).strip())
+    same_row_text = " ".join(same_row_vals).strip()
+    if same_row_text:
+        lines.append(same_row_text)
+
+    for r in range(start_row + 1, min(ws.max_row, start_row + max_rows) + 1):
+        joined = row_joined_text(ws, r)
+        if not joined:
+            continue
+        if any(k in joined for k in stop_keywords):
+            break
+        lines.append(joined)
+
+    return "\n".join(lines).strip()
+
+
 def normalize_perf_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -502,18 +557,40 @@ def get_market_comments():
         }
 
     ws = wb["월간투자전략"]
-
     base_date = ws.cell(4, 12).value or ""
 
-    global_text = str(ws.cell(21, 3).value or "")
-    stock_text = str(ws.cell(26, 3).value or "")
-    bond_text = str(ws.cell(31, 3).value or "")
+    global_text = extract_block_below_keyword(
+        ws,
+        "글로벌 경기 전망",
+        stop_keywords=["국내주식", "국내채권", "애널리스트 코멘트", "매니저 코멘트"],
+        max_rows=10,
+    )
+    stock_text = extract_block_below_keyword(
+        ws,
+        "국내주식",
+        stop_keywords=["국내채권", "글로벌 경기 전망", "애널리스트 코멘트", "매니저 코멘트"],
+        max_rows=10,
+    )
+    bond_text = extract_block_below_keyword(
+        ws,
+        "국내채권",
+        stop_keywords=["국내주식", "글로벌 경기 전망", "애널리스트 코멘트", "매니저 코멘트"],
+        max_rows=10,
+    )
+
+    # fallback
+    if not global_text:
+        global_text = str(ws.cell(21, 3).value or "")
+    if not stock_text:
+        stock_text = str(ws.cell(26, 3).value or "")
+    if not bond_text:
+        bond_text = str(ws.cell(31, 3).value or "")
 
     return {
         "base_date": str(base_date),
-        "global_outlook": global_text,
-        "domestic_stocks": stock_text,
-        "domestic_bonds": bond_text,
+        "global_outlook": str(global_text),
+        "domestic_stocks": str(stock_text),
+        "domestic_bonds": str(bond_text),
     }
 
 
@@ -948,7 +1025,7 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 3. Market inspection
+    # 3. Major asset market inspection
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_report_header(slide, report_month, "02", "주요 자산 시장 점검")
 
@@ -959,7 +1036,7 @@ def create_pptx_report(
         7.10,
         1.45,
         "글로벌 경기 전망",
-        str(market_comments.get("global_outlook", ""))[:420],
+        str(market_comments.get("global_outlook", ""))[:420] or "코멘트 없음",
     )
     add_chart_comment_box(
         slide,
@@ -968,7 +1045,7 @@ def create_pptx_report(
         7.10,
         1.45,
         "국내주식",
-        str(market_comments.get("domestic_stocks", ""))[:420],
+        str(market_comments.get("domestic_stocks", ""))[:420] or "코멘트 없음",
     )
     add_chart_comment_box(
         slide,
@@ -977,7 +1054,7 @@ def create_pptx_report(
         7.10,
         1.45,
         "국내채권",
-        str(market_comments.get("domestic_bonds", ""))[:420],
+        str(market_comments.get("domestic_bonds", ""))[:420] or "코멘트 없음",
     )
 
     if market_chart_1 and Path(market_chart_1).exists():
@@ -1128,6 +1205,11 @@ def main():
             "fund_rows": len(fund_table),
             "performance_rows": len(perf_table),
             "manager_status_rows": len(manager_status_table),
+        },
+        "comments": {
+            "global_outlook_len": len(market_comments.get("global_outlook", "")),
+            "domestic_stocks_len": len(market_comments.get("domestic_stocks", "")),
+            "domestic_bonds_len": len(market_comments.get("domestic_bonds", "")),
         },
         "charts": {
             "asset_chart": asset_chart_path,
