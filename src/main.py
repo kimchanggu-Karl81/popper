@@ -21,13 +21,13 @@ OUTPUT_BASE_DIR = BASE_DIR / "data" / "output" / "monthly-report"
 THEME_BLUE = RGBColor(31, 78, 121)
 THEME_DARK = RGBColor(64, 64, 64)
 WHITE = RGBColor(255, 255, 255)
+LIGHT_BG = RGBColor(248, 250, 253)
+SOFT_BG = RGBColor(242, 246, 250)
+LINE_GRAY = RGBColor(200, 210, 225)
 
 SLIDE_W = 8.27
 SLIDE_H = 11.69
 
-# =========================
-# 프로필 정보: 여기만 바꾸면 4,5페이지에 반영
-# =========================
 ANALYST_PROFILE = {
     "company": "동양생명",
     "name": "애널리스트 이름",
@@ -57,6 +57,11 @@ SOURCE_FILES = {
     "managers": INPUT_DIR / "managers" / "(P.23) (변경 O) 12.펀드별 운용사 현황(1).xlsx",
 }
 
+# 자산배분 시트에서 이전월/당월 배분을 읽어올 범위
+# 실제 엑셀 구조가 다르면 여기만 수정하면 됩니다.
+PREV_ALLOC_RANGE = {"rows": (34, 37), "name_col": 2, "weight_col": 3}
+CURR_ALLOC_RANGE = {"rows": (34, 37), "name_col": 19, "weight_col": 20}
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Monthly investment report draft generator")
@@ -69,16 +74,10 @@ def ensure_directories(report_month: str, mode: str) -> dict[str, Path]:
     report_root = OUTPUT_BASE_DIR / report_month / mode
     charts_dir = report_root / "charts"
     logs_dir = report_root / "logs"
-
     report_root.mkdir(parents=True, exist_ok=True)
     charts_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
-
-    return {
-        "report_root": report_root,
-        "charts_dir": charts_dir,
-        "logs_dir": logs_dir,
-    }
+    return {"report_root": report_root, "charts_dir": charts_dir, "logs_dir": logs_dir}
 
 
 def format_issue_label(report_month: str) -> str:
@@ -114,24 +113,10 @@ def safe_read_docx(path: Path) -> str:
 
 
 def summarize_source_status():
-    return [
-        {"key": key, "path": str(path), "exists": path.exists()}
-        for key, path in SOURCE_FILES.items()
-    ]
+    return [{"key": key, "path": str(path), "exists": path.exists()} for key, path in SOURCE_FILES.items()]
 
 
-def add_textbox(
-    slide,
-    left,
-    top,
-    width,
-    height,
-    text,
-    font_size=16,
-    bold=False,
-    align=PP_ALIGN.LEFT,
-    font_color=THEME_DARK,
-):
+def add_textbox(slide, left, top, width, height, text, font_size=16, bold=False, align=PP_ALIGN.LEFT, font_color=THEME_DARK):
     textbox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = textbox.text_frame
     tf.clear()
@@ -147,325 +132,96 @@ def add_textbox(
     return textbox
 
 
+def add_cover_background(slide):
+    bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(SLIDE_W), Inches(SLIDE_H))
+    bg.fill.solid()
+    bg.fill.fore_color.rgb = THEME_BLUE
+    bg.line.color.rgb = THEME_BLUE
+
+
 def add_footer(slide, report_month: str, page_no: int):
-    line = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(0.45),
-        Inches(10.95),
-        Inches(7.35),
-        Inches(0.02),
-    )
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.45), Inches(10.95), Inches(7.35), Inches(0.02))
     line.fill.solid()
     line.fill.fore_color.rgb = THEME_BLUE
     line.line.color.rgb = THEME_BLUE
 
-    add_textbox(
-        slide,
-        0.5,
-        11.0,
-        3.8,
-        0.2,
-        f"동양생명 월간 투자전략 | {report_month}",
-        font_size=8,
-        font_color=THEME_DARK,
-    )
-    add_textbox(
-        slide,
-        7.1,
-        11.0,
-        0.5,
-        0.2,
-        str(page_no),
-        font_size=8,
-        align=PP_ALIGN.RIGHT,
-        font_color=THEME_DARK,
-    )
-
-
-def add_cover_background(slide):
-    bg = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(0),
-        Inches(0),
-        Inches(SLIDE_W),
-        Inches(SLIDE_H),
-    )
-    bg.fill.solid()
-    bg.fill.fore_color.rgb = RGBColor(31, 78, 121)
-    bg.line.color.rgb = RGBColor(31, 78, 121)
+    add_textbox(slide, 0.5, 11.0, 3.8, 0.2, f"동양생명 월간 투자전략 | {report_month}", font_size=8)
+    add_textbox(slide, 7.1, 11.0, 0.5, 0.2, str(page_no), font_size=8, align=PP_ALIGN.RIGHT)
 
 
 def add_report_header(slide, report_month: str, section_no: str, section_title: str):
-    header = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(0),
-        Inches(0),
-        Inches(SLIDE_W),
-        Inches(0.95),
-    )
+    header = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(SLIDE_W), Inches(0.95))
     header.fill.solid()
     header.fill.fore_color.rgb = THEME_BLUE
     header.line.color.rgb = THEME_BLUE
 
-    add_textbox(
-        slide,
-        0.28,
-        0.14,
-        4.8,
-        0.22,
-        "동양생명 변액보험 월간 투자전략 GUIDE",
-        font_size=12,
-        bold=True,
-        font_color=WHITE,
-    )
+    add_textbox(slide, 0.28, 0.14, 4.8, 0.22, "동양생명 변액보험 월간 투자전략 GUIDE", font_size=12, bold=True, font_color=WHITE)
+    add_textbox(slide, 0.28, 0.42, 2.2, 0.18, "모집인교육용 / 대외비", font_size=7.5, font_color=WHITE)
 
-    add_textbox(
-        slide,
-        0.28,
-        0.42,
-        2.2,
-        0.18,
-        "모집인교육용 / 대외비",
-        font_size=7.5,
-        font_color=WHITE,
-    )
-
-    pill = slide.shapes.add_shape(
-        MSO_SHAPE.ROUNDED_RECTANGLE,
-        Inches(7.05),
-        Inches(0.14),
-        Inches(0.95),
-        Inches(0.34),
-    )
+    pill = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(7.05), Inches(0.14), Inches(0.95), Inches(0.34))
     pill.fill.solid()
     pill.fill.fore_color.rgb = RGBColor(79, 128, 189)
     pill.line.color.rgb = WHITE
 
-    add_textbox(
-        slide,
-        7.12,
-        0.205,
-        0.8,
-        0.12,
-        f"{format_issue_label(report_month)}호",
-        font_size=7.3,
-        align=PP_ALIGN.CENTER,
-        font_color=WHITE,
-    )
+    add_textbox(slide, 7.12, 0.205, 0.8, 0.12, f"{format_issue_label(report_month)}호", font_size=7.3, align=PP_ALIGN.CENTER, font_color=WHITE)
+    add_textbox(slide, 0.55, 1.1, 0.9, 0.55, section_no, font_size=28, bold=True, font_color=RGBColor(210, 220, 235))
+    add_textbox(slide, 0.55, 1.6, 4.5, 0.35, section_title, font_size=16, bold=True, font_color=THEME_BLUE)
 
-    add_textbox(
-        slide,
-        0.55,
-        1.1,
-        0.9,
-        0.55,
-        section_no,
-        font_size=28,
-        bold=True,
-        font_color=RGBColor(210, 220, 235),
-    )
-
-    add_textbox(
-        slide,
-        0.55,
-        1.6,
-        4.2,
-        0.35,
-        section_title,
-        font_size=16,
-        bold=True,
-        font_color=THEME_BLUE,
-    )
-
-    line = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(0.55),
-        Inches(2.08),
-        Inches(7.1),
-        Inches(0.025),
-    )
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.55), Inches(2.08), Inches(7.1), Inches(0.025))
     line.fill.solid()
     line.fill.fore_color.rgb = THEME_BLUE
     line.line.color.rgb = THEME_BLUE
 
 
 def add_chart_comment_box(slide, left, top, width, height, title, body):
-    shape = slide.shapes.add_shape(
-        MSO_SHAPE.ROUNDED_RECTANGLE,
-        Inches(left),
-        Inches(top),
-        Inches(width),
-        Inches(height),
-    )
+    shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height))
     shape.fill.solid()
-    shape.fill.fore_color.rgb = RGBColor(242, 246, 250)
-    shape.line.color.rgb = RGBColor(190, 205, 220)
+    shape.fill.fore_color.rgb = SOFT_BG
+    shape.line.color.rgb = LINE_GRAY
 
-    add_textbox(
-        slide,
-        left + 0.15,
-        top + 0.08,
-        width - 0.3,
-        0.25,
-        title,
-        font_size=11,
-        bold=True,
-        font_color=THEME_BLUE,
-    )
-    add_textbox(
-        slide,
-        left + 0.15,
-        top + 0.38,
-        width - 0.3,
-        height - 0.45,
-        body,
-        font_size=10,
-        font_color=THEME_DARK,
-    )
+    add_textbox(slide, left + 0.15, top + 0.08, width - 0.3, 0.25, title, font_size=11, bold=True, font_color=THEME_BLUE)
+    add_textbox(slide, left + 0.15, top + 0.38, width - 0.3, height - 0.45, body, font_size=10)
 
 
 def add_summary_comment_box(slide, left, top, width, height, title, body):
-    shape = slide.shapes.add_shape(
-        MSO_SHAPE.ROUNDED_RECTANGLE,
-        Inches(left),
-        Inches(top),
-        Inches(width),
-        Inches(height),
-    )
+    shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height))
     shape.fill.solid()
-    shape.fill.fore_color.rgb = RGBColor(248, 250, 253)
-    shape.line.color.rgb = RGBColor(200, 210, 225)
+    shape.fill.fore_color.rgb = LIGHT_BG
+    shape.line.color.rgb = LINE_GRAY
 
-    add_textbox(
-        slide,
-        left + 0.12,
-        top + 0.08,
-        width - 0.24,
-        0.24,
-        title,
-        font_size=10,
-        bold=True,
-        font_color=THEME_BLUE,
-    )
-    add_textbox(
-        slide,
-        left + 0.12,
-        top + 0.36,
-        width - 0.24,
-        height - 0.44,
-        body,
-        font_size=9,
-        font_color=THEME_DARK,
-    )
+    add_textbox(slide, left + 0.12, top + 0.08, width - 0.24, 0.24, title, font_size=10, bold=True, font_color=THEME_BLUE)
+    add_textbox(slide, left + 0.12, top + 0.36, width - 0.24, height - 0.44, body, font_size=9)
 
 
 def add_profile_box(slide, left, top, width, height, company, name, photo_path):
-    outer = slide.shapes.add_shape(
-        MSO_SHAPE.ROUNDED_RECTANGLE,
-        Inches(left),
-        Inches(top),
-        Inches(width),
-        Inches(height),
-    )
+    outer = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height))
     outer.fill.solid()
-    outer.fill.fore_color.rgb = RGBColor(248, 250, 253)
-    outer.line.color.rgb = RGBColor(190, 205, 220)
+    outer.fill.fore_color.rgb = LIGHT_BG
+    outer.line.color.rgb = LINE_GRAY
 
     photo_box_left = left + 0.12
     photo_box_top = top + 0.14
     photo_box_w = 1.15
     photo_box_h = 1.35
 
-    photo_frame = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(photo_box_left),
-        Inches(photo_box_top),
-        Inches(photo_box_w),
-        Inches(photo_box_h),
-    )
+    photo_frame = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(photo_box_left), Inches(photo_box_top), Inches(photo_box_w), Inches(photo_box_h))
     photo_frame.fill.solid()
     photo_frame.fill.fore_color.rgb = WHITE
-    photo_frame.line.color.rgb = RGBColor(180, 190, 205)
+    photo_frame.line.color.rgb = LINE_GRAY
 
     photo = Path(photo_path) if photo_path else None
     if photo and photo.exists():
         try:
-            slide.shapes.add_picture(
-                str(photo),
-                Inches(photo_box_left + 0.02),
-                Inches(photo_box_top + 0.02),
-                width=Inches(photo_box_w - 0.04),
-                height=Inches(photo_box_h - 0.04),
-            )
+            slide.shapes.add_picture(str(photo), Inches(photo_box_left + 0.02), Inches(photo_box_top + 0.02), width=Inches(photo_box_w - 0.04), height=Inches(photo_box_h - 0.04))
         except Exception:
-            add_textbox(
-                slide,
-                photo_box_left + 0.12,
-                photo_box_top + 0.55,
-                0.9,
-                0.2,
-                "사진",
-                font_size=9,
-                align=PP_ALIGN.CENTER,
-                font_color=THEME_DARK,
-            )
+            add_textbox(slide, photo_box_left + 0.12, photo_box_top + 0.55, 0.9, 0.2, "사진", font_size=9, align=PP_ALIGN.CENTER)
     else:
-        add_textbox(
-            slide,
-            photo_box_left + 0.12,
-            photo_box_top + 0.55,
-            0.9,
-            0.2,
-            "사진",
-            font_size=9,
-            align=PP_ALIGN.CENTER,
-            font_color=THEME_DARK,
-        )
+        add_textbox(slide, photo_box_left + 0.12, photo_box_top + 0.55, 0.9, 0.2, "사진", font_size=9, align=PP_ALIGN.CENTER)
 
-    add_textbox(
-        slide,
-        left + 1.42,
-        top + 0.22,
-        width - 1.58,
-        0.22,
-        "회사명",
-        font_size=8.5,
-        bold=True,
-        font_color=THEME_BLUE,
-    )
-    add_textbox(
-        slide,
-        left + 1.42,
-        top + 0.46,
-        width - 1.58,
-        0.22,
-        company,
-        font_size=10,
-        font_color=THEME_DARK,
-    )
-
-    add_textbox(
-        slide,
-        left + 1.42,
-        top + 0.86,
-        width - 1.58,
-        0.22,
-        "이름",
-        font_size=8.5,
-        bold=True,
-        font_color=THEME_BLUE,
-    )
-    add_textbox(
-        slide,
-        left + 1.42,
-        top + 1.10,
-        width - 1.58,
-        0.26,
-        name,
-        font_size=11,
-        bold=True,
-        font_color=THEME_DARK,
-    )
+    add_textbox(slide, left + 1.42, top + 0.22, width - 1.58, 0.22, "회사명", font_size=8.5, bold=True, font_color=THEME_BLUE)
+    add_textbox(slide, left + 1.42, top + 0.46, width - 1.58, 0.22, company, font_size=10)
+    add_textbox(slide, left + 1.42, top + 0.86, width - 1.58, 0.22, "이름", font_size=8.5, bold=True, font_color=THEME_BLUE)
+    add_textbox(slide, left + 1.42, top + 1.10, width - 1.58, 0.26, name, font_size=11, bold=True)
 
 
 def format_table_text(cell, font_size=9, bold=False, align=PP_ALIGN.CENTER, font_color=THEME_DARK):
@@ -489,7 +245,7 @@ def style_table_header(cell):
 def style_table_body(cell, align):
     cell.fill.solid()
     cell.fill.fore_color.rgb = WHITE
-    format_table_text(cell, font_size=8.2, bold=False, align=align, font_color=THEME_DARK)
+    format_table_text(cell, font_size=8.2, bold=False, align=align)
 
 
 def set_column_widths(table, widths_in_inches):
@@ -582,7 +338,6 @@ def normalize_perf_df(df: pd.DataFrame) -> pd.DataFrame:
     keep = ["구분", "자산명", "1개월", "3개월", "6개월", "1년", "3년"]
     keep = [c for c in keep if c in df.columns]
     df = df[keep].copy()
-
     df = df.dropna(subset=["자산명"])
     df["자산명"] = df["자산명"].astype(str).str.strip()
     df = df[df["자산명"] != ""]
@@ -606,7 +361,6 @@ def get_market_perf_table_from_returns_file():
                 pass
     except Exception:
         pass
-
     return pd.DataFrame()
 
 
@@ -646,11 +400,7 @@ def get_market_perf_table():
 def get_cover_info():
     wb = safe_load_workbook(SOURCE_FILES["cover"])
     if wb is None or "표지" not in wb.sheetnames:
-        return {
-            "title": "동양생명 월간 투자전략",
-            "subtitle": "변액보험 월간 투자전략 GUIDE",
-            "notices": [],
-        }
+        return {"title": "동양생명 월간 투자전략", "subtitle": "변액보험 월간 투자전략 GUIDE", "notices": []}
 
     ws = wb["표지"]
     notices = []
@@ -658,45 +408,20 @@ def get_cover_info():
         v = ws.cell(r, 2).value
         if v:
             notices.append(str(v))
-
-    return {
-        "title": "동양생명 월간 투자전략",
-        "subtitle": "변액보험 월간 투자전략 GUIDE",
-        "notices": notices,
-    }
+    return {"title": "동양생명 월간 투자전략", "subtitle": "변액보험 월간 투자전략 GUIDE", "notices": notices}
 
 
 def get_market_comments():
     wb = safe_load_workbook(SOURCE_FILES["market_main"])
     if wb is None or "월간투자전략" not in wb.sheetnames:
-        return {
-            "base_date": "",
-            "global_outlook": "",
-            "domestic_stocks": "",
-            "domestic_bonds": "",
-        }
+        return {"base_date": "", "global_outlook": "", "domestic_stocks": "", "domestic_bonds": ""}
 
     ws = wb["월간투자전략"]
     base_date = ws.cell(4, 12).value or ""
 
-    global_text = extract_block_below_keyword(
-        ws,
-        "글로벌 경기 전망",
-        stop_keywords=["국내주식", "국내채권", "애널리스트 코멘트", "매니저 코멘트"],
-        max_rows=10,
-    )
-    stock_text = extract_block_below_keyword(
-        ws,
-        "국내주식",
-        stop_keywords=["국내채권", "글로벌 경기 전망", "애널리스트 코멘트", "매니저 코멘트"],
-        max_rows=10,
-    )
-    bond_text = extract_block_below_keyword(
-        ws,
-        "국내채권",
-        stop_keywords=["국내주식", "글로벌 경기 전망", "애널리스트 코멘트", "매니저 코멘트"],
-        max_rows=10,
-    )
+    global_text = extract_block_below_keyword(ws, "글로벌 경기 전망", stop_keywords=["국내주식", "국내채권", "애널리스트 코멘트", "매니저 코멘트"], max_rows=10)
+    stock_text = extract_block_below_keyword(ws, "국내주식", stop_keywords=["국내채권", "글로벌 경기 전망", "애널리스트 코멘트", "매니저 코멘트"], max_rows=10)
+    bond_text = extract_block_below_keyword(ws, "국내채권", stop_keywords=["국내주식", "글로벌 경기 전망", "애널리스트 코멘트", "매니저 코멘트"], max_rows=10)
 
     if not global_text:
         global_text = str(ws.cell(21, 3).value or "")
@@ -723,27 +448,48 @@ def get_manager_comment():
     return text if text else "매니저 코멘트 파일을 읽지 못했습니다."
 
 
+def _read_alloc_block(ws, rows_rng, name_col, weight_col):
+    rows = []
+    for r in range(rows_rng[0], rows_rng[1] + 1):
+        name = ws.cell(r, name_col).value
+        weight = ws.cell(r, weight_col).value
+        if name and weight is not None:
+            try:
+                wt = float(weight)
+            except Exception:
+                continue
+            rows.append({"asset_name": str(name), "weight": wt})
+    return pd.DataFrame(rows)
+
+
 def get_allocation_data():
     wb = safe_load_workbook(SOURCE_FILES["allocation"])
     if wb is None or "월간투자전략" not in wb.sheetnames:
-        return {"reason": "", "current_alloc": pd.DataFrame()}
+        return {
+            "reason": "",
+            "prev_alloc": pd.DataFrame(),
+            "current_alloc": pd.DataFrame(),
+        }
 
     ws = wb["월간투자전략"]
-    reason = ws.cell(31, 3).value or ""
 
-    rows = []
-    for r in range(19, 23):
-        asset_name = ws.cell(r, 19).value
-        weight = ws.cell(r, 20).value
-        if asset_name and weight is not None:
-            rows.append({
-                "asset_name": str(asset_name),
-                "weight": float(weight),
-            })
+    reason = ""
+    comment_candidates = [
+        extract_block_below_keyword(ws, "3월 자산배분 제안", stop_keywords=["2026년", "국내주식", "위험자산"], max_rows=10),
+        str(ws.cell(31, 3).value or "").strip(),
+    ]
+    for c in comment_candidates:
+        if c:
+            reason = c
+            break
+
+    prev_alloc = _read_alloc_block(ws, PREV_ALLOC_RANGE["rows"], PREV_ALLOC_RANGE["name_col"], PREV_ALLOC_RANGE["weight_col"])
+    current_alloc = _read_alloc_block(ws, CURR_ALLOC_RANGE["rows"], CURR_ALLOC_RANGE["name_col"], CURR_ALLOC_RANGE["weight_col"])
 
     return {
-        "reason": str(reason),
-        "current_alloc": pd.DataFrame(rows),
+        "reason": reason,
+        "prev_alloc": prev_alloc,
+        "current_alloc": current_alloc,
     }
 
 
@@ -806,12 +552,7 @@ def get_manager_status_table():
     for r in range(4, 14):
         fund_name = ws.cell(r, 3).value
         if fund_name:
-            rows.append({
-                "펀드명": fund_name,
-                "운용사": ws.cell(r, 4).value,
-                "수탁회사": ws.cell(r, 5).value,
-                "사무관리회사": ws.cell(r, 6).value,
-            })
+            rows.append({"펀드명": fund_name, "운용사": ws.cell(r, 4).value, "수탁회사": ws.cell(r, 5).value, "사무관리회사": ws.cell(r, 6).value})
     return pd.DataFrame(rows)
 
 
@@ -883,7 +624,6 @@ def create_fund_chart(fund_df: pd.DataFrame, charts_dir: Path):
         return None
 
     plot_df = plot_df.head(8)
-
     fig, ax = plt.subplots(figsize=(8, 5.5))
     ax.bar(plot_df["펀드명"], plot_df["1Y"])
     ax.set_title("추천 펀드 1년 수익률")
@@ -897,20 +637,20 @@ def create_fund_chart(fund_df: pd.DataFrame, charts_dir: Path):
     return str(output_path)
 
 
-def create_allocation_chart(allocation_df: pd.DataFrame, charts_dir: Path):
+def create_allocation_chart(allocation_df: pd.DataFrame, charts_dir: Path, filename: str, title: str):
     if allocation_df.empty:
         return None
 
-    fig, ax = plt.subplots(figsize=(5.5, 5.5))
+    fig, ax = plt.subplots(figsize=(4.2, 4.2))
     ax.pie(
         allocation_df["weight"],
         labels=allocation_df["asset_name"],
         autopct="%1.1f%%",
         startangle=90,
     )
-    ax.set_title("당월 자산배분")
+    ax.set_title(title)
 
-    output_path = charts_dir / "allocation_current.png"
+    output_path = charts_dir / filename
     fig.savefig(output_path, bbox_inches="tight", dpi=200)
     plt.close(fig)
     return str(output_path)
@@ -930,9 +670,7 @@ def prepare_table_df(df: pd.DataFrame, keep_columns: list[str], rename_map: dict
         if col not in text_columns:
             try:
                 numeric_series = pd.to_numeric(display_df[col])
-                display_df[col] = numeric_series.map(
-                    lambda x: f"{x:.2f}" if pd.notnull(x) else ""
-                )
+                display_df[col] = numeric_series.map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
             except Exception:
                 display_df[col] = display_df[col].astype(str)
 
@@ -949,15 +687,7 @@ def add_table_slide(prs, report_month: str, section_no: str, title: str, df: pd.
 
     rows = len(df) + 1
     cols = len(df.columns)
-    table = slide.shapes.add_table(
-        rows,
-        cols,
-        Inches(0.35),
-        Inches(top),
-        Inches(7.45),
-        Inches(3.55),
-    ).table
-
+    table = slide.shapes.add_table(rows, cols, Inches(0.35), Inches(top), Inches(7.45), Inches(3.55)).table
     set_column_widths(table, widths)
 
     for c, col_name in enumerate(df.columns):
@@ -970,8 +700,35 @@ def add_table_slide(prs, report_month: str, section_no: str, title: str, df: pd.
             table.cell(r + 1, c).text = value
             align = PP_ALIGN.LEFT if c in [0, 1] else PP_ALIGN.CENTER
             style_table_body(table.cell(r + 1, c), align)
-
     return slide
+
+
+def add_fixed_allocation_blocks(slide):
+    add_chart_comment_box(
+        slide,
+        0.55,
+        2.35,
+        3.35,
+        2.35,
+        "4월 자산군별 전망",
+        "1 각 자산별 위험/수익률 상관관계\n"
+        "낮은 위험-수익 자산에서 높은 위험-수익 자산으로 분포하며,\n"
+        "국내채권·해외채권·선진국주식·국내주식·이머징주식의 상대적 위치를 참고합니다.",
+    )
+    add_chart_comment_box(
+        slide,
+        4.20,
+        2.35,
+        3.35,
+        2.35,
+        "고객정보 투자성향 분석",
+        "2 변액보험 모델포트폴리오 구축 단계\n"
+        "❶ 자산군배분\n"
+        "❷ 섹터(스타일)배분\n"
+        "❸ 섹터별 펀드 구성\n"
+        "❹ 추천포트폴리오 구성\n\n"
+        "안정추구형 30:70 / 위험중립형 40:60 / 수익추구형 50:50",
+    )
 
 
 def build_summary_text(month, source_status, market_comments, analyst_text, manager_text):
@@ -1013,12 +770,13 @@ def create_pptx_report(
     market_perf_df: pd.DataFrame,
     analyst_text: str,
     manager_text: str,
-    allocation_reason: str,
+    allocation_data: dict,
     asset_chart_path: str | None,
     market_chart_1: str | None,
     market_chart_2: str | None,
     fund_chart_path: str | None,
-    allocation_chart_path: str | None,
+    prev_alloc_chart_path: str | None,
+    current_alloc_chart_path: str | None,
     fund_table: pd.DataFrame,
     perf_table: pd.DataFrame,
     manager_status_table: pd.DataFrame,
@@ -1032,63 +790,18 @@ def create_pptx_report(
     # 1. Cover
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_cover_background(slide)
-
-    add_textbox(
-        slide, 0.7, 1.6, 6.8, 0.8,
-        cover_info.get("title", "동양생명 월간 투자전략"),
-        font_size=24, bold=True, font_color=WHITE
-    )
-    add_textbox(
-        slide, 0.7, 2.3, 6.8, 0.4,
-        cover_info.get("subtitle", "변액보험 월간 투자전략 GUIDE"),
-        font_size=14, font_color=WHITE
-    )
-    add_textbox(
-        slide, 0.7, 3.1, 3.5, 0.3,
-        f"기준월: {report_month}",
-        font_size=13, font_color=WHITE
-    )
-    add_textbox(
-        slide, 0.7, 3.5, 4.5, 0.3,
-        f"기준일: {market_comments.get('base_date', '')}",
-        font_size=13, font_color=WHITE
-    )
+    add_textbox(slide, 0.7, 1.6, 6.8, 0.8, cover_info.get("title", "동양생명 월간 투자전략"), font_size=24, bold=True, font_color=WHITE)
+    add_textbox(slide, 0.7, 2.3, 6.8, 0.4, cover_info.get("subtitle", "변액보험 월간 투자전략 GUIDE"), font_size=14, font_color=WHITE)
+    add_textbox(slide, 0.7, 3.1, 3.5, 0.3, f"기준월: {report_month}", font_size=13, font_color=WHITE)
+    add_textbox(slide, 0.7, 3.5, 4.5, 0.3, f"기준일: {market_comments.get('base_date', '')}", font_size=13, font_color=WHITE)
 
     notice_y = 4.3
     for notice in cover_info.get("notices", [])[:3]:
-        add_textbox(
-            slide,
-            0.8,
-            notice_y,
-            6.8,
-            0.35,
-            f"• {notice}",
-            font_size=9,
-            font_color=WHITE
-        )
+        add_textbox(slide, 0.8, notice_y, 6.8, 0.35, f"• {notice}", font_size=9, font_color=WHITE)
         notice_y += 0.38
 
-    add_textbox(
-        slide,
-        0.5,
-        11.0,
-        3.8,
-        0.2,
-        f"동양생명 월간 투자전략 | {report_month}",
-        font_size=8,
-        font_color=WHITE,
-    )
-    add_textbox(
-        slide,
-        7.1,
-        11.0,
-        0.5,
-        0.2,
-        str(page_no),
-        font_size=8,
-        align=PP_ALIGN.RIGHT,
-        font_color=WHITE,
-    )
+    add_textbox(slide, 0.5, 11.0, 3.8, 0.2, f"동양생명 월간 투자전략 | {report_month}", font_size=8, font_color=WHITE)
+    add_textbox(slide, 7.1, 11.0, 0.5, 0.2, str(page_no), font_size=8, align=PP_ALIGN.RIGHT, font_color=WHITE)
     page_no += 1
 
     # 2. Key summary
@@ -1098,83 +811,23 @@ def create_pptx_report(
         rename_map={},
         max_rows=10,
     )
-    slide = add_table_slide(
-        prs,
-        report_month,
-        "01",
-        "핵심 요약",
-        perf_display,
-        [0.75, 1.55, 0.72, 0.72, 0.72, 0.72, 0.72],
-        top=2.35
-    )
-
-    add_textbox(
-        slide,
-        0.55,
-        6.18,
-        7.1,
-        0.25,
-        f"기준일: {market_comments.get('base_date', '')} / 주요 자산별 성과 요약",
-        font_size=8.8,
-        font_color=THEME_DARK,
-    )
+    slide = add_table_slide(prs, report_month, "01", "핵심 요약", perf_display, [0.75, 1.55, 0.72, 0.72, 0.72, 0.72, 0.72], top=2.35)
+    add_textbox(slide, 0.55, 6.18, 7.1, 0.25, f"기준일: {market_comments.get('base_date', '')} / 주요 자산별 성과 요약", font_size=8.8)
 
     analyst_summary = str(analyst_text).replace("\n", " ")[:260]
     manager_summary = str(manager_text).replace("\n", " ")[:260]
 
-    add_summary_comment_box(
-        slide,
-        0.50,
-        6.55,
-        3.45,
-        2.05,
-        "애널리스트 코멘트 요약",
-        analyst_summary,
-    )
-    add_summary_comment_box(
-        slide,
-        4.10,
-        6.55,
-        3.45,
-        2.05,
-        "펀드매니저 코멘트 요약",
-        manager_summary,
-    )
-
+    add_summary_comment_box(slide, 0.50, 6.55, 3.45, 2.05, "애널리스트 코멘트 요약", analyst_summary)
+    add_summary_comment_box(slide, 4.10, 6.55, 3.45, 2.05, "펀드매니저 코멘트 요약", manager_summary)
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 3. Major asset market inspection
+    # 3. Market
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_report_header(slide, report_month, "02", "주요 자산 시장 점검")
-
-    add_chart_comment_box(
-        slide,
-        0.55,
-        2.30,
-        7.10,
-        1.45,
-        "글로벌 경기 전망",
-        str(market_comments.get("global_outlook", ""))[:420] or "코멘트 없음",
-    )
-    add_chart_comment_box(
-        slide,
-        0.55,
-        3.95,
-        7.10,
-        1.45,
-        "국내주식",
-        str(market_comments.get("domestic_stocks", ""))[:420] or "코멘트 없음",
-    )
-    add_chart_comment_box(
-        slide,
-        0.55,
-        5.60,
-        7.10,
-        1.45,
-        "국내채권",
-        str(market_comments.get("domestic_bonds", ""))[:420] or "코멘트 없음",
-    )
+    add_chart_comment_box(slide, 0.55, 2.30, 7.10, 1.45, "글로벌 경기 전망", str(market_comments.get("global_outlook", ""))[:420] or "코멘트 없음")
+    add_chart_comment_box(slide, 0.55, 3.95, 7.10, 1.45, "국내주식", str(market_comments.get("domestic_stocks", ""))[:420] or "코멘트 없음")
+    add_chart_comment_box(slide, 0.55, 5.60, 7.10, 1.45, "국내채권", str(market_comments.get("domestic_bonds", ""))[:420] or "코멘트 없음")
 
     if market_chart_1 and Path(market_chart_1).exists():
         slide.shapes.add_picture(market_chart_1, Inches(0.55), Inches(7.35), width=Inches(3.35))
@@ -1187,16 +840,7 @@ def create_pptx_report(
     # 4. Analyst
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_report_header(slide, report_month, "03", "애널리스트 코멘트")
-    add_profile_box(
-        slide,
-        left=5.45,
-        top=2.30,
-        width=2.15,
-        height=1.65,
-        company=ANALYST_PROFILE["company"],
-        name=ANALYST_PROFILE["name"],
-        photo_path=ANALYST_PROFILE["photo"],
-    )
+    add_profile_box(slide, 5.45, 2.30, 2.15, 1.65, ANALYST_PROFILE["company"], ANALYST_PROFILE["name"], ANALYST_PROFILE["photo"])
     add_textbox(slide, 0.6, 2.35, 4.55, 7.8, analyst_text[:2200], font_size=10.8)
     add_footer(slide, report_month, page_no)
     page_no += 1
@@ -1204,44 +848,53 @@ def create_pptx_report(
     # 5. Manager
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_report_header(slide, report_month, "04", "매니저 코멘트")
-    add_profile_box(
-        slide,
-        left=5.45,
-        top=2.30,
-        width=2.15,
-        height=1.65,
-        company=MANAGER_PROFILE["company"],
-        name=MANAGER_PROFILE["name"],
-        photo_path=MANAGER_PROFILE["photo"],
-    )
+    add_profile_box(slide, 5.45, 2.30, 2.15, 1.65, MANAGER_PROFILE["company"], MANAGER_PROFILE["name"], MANAGER_PROFILE["photo"])
     add_textbox(slide, 0.6, 2.35, 4.55, 7.8, manager_text[:2200], font_size=10.8)
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 6. Allocation
+    # 6. Allocation strategy
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_report_header(slide, report_month, "05", "투자자별 자산배분 전략")
+
+    add_fixed_allocation_blocks(slide)
+
+    # 가운데/하단 영역
+    left_box = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.55), Inches(5.00), Inches(3.10), Inches(3.05))
+    left_box.fill.solid()
+    left_box.fill.fore_color.rgb = LIGHT_BG
+    left_box.line.color.rgb = LINE_GRAY
+    add_textbox(slide, 0.70, 5.12, 2.8, 0.25, "이전월 자산배분", font_size=11, bold=True, font_color=THEME_BLUE)
+    if prev_alloc_chart_path and Path(prev_alloc_chart_path).exists():
+        slide.shapes.add_picture(prev_alloc_chart_path, Inches(0.78), Inches(5.45), width=Inches(2.65))
+    else:
+        add_textbox(slide, 1.25, 6.30, 1.7, 0.3, "이전월 데이터 없음", font_size=10, align=PP_ALIGN.CENTER)
+
+    right_box = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(4.10), Inches(5.00), Inches(3.45), Inches(3.05))
+    right_box.fill.solid()
+    right_box.fill.fore_color.rgb = LIGHT_BG
+    right_box.line.color.rgb = LINE_GRAY
+    add_textbox(slide, 4.25, 5.12, 3.0, 0.25, "당월 자산배분 제안", font_size=11, bold=True, font_color=THEME_BLUE)
+    if current_alloc_chart_path and Path(current_alloc_chart_path).exists():
+        slide.shapes.add_picture(current_alloc_chart_path, Inches(4.45), Inches(5.45), width=Inches(2.70))
+    else:
+        add_textbox(slide, 5.00, 6.30, 1.7, 0.3, "당월 데이터 없음", font_size=10, align=PP_ALIGN.CENTER)
+
     add_chart_comment_box(
         slide,
-        0.6,
-        2.35,
-        7.0,
-        1.7,
-        "자산배분 코멘트",
-        allocation_reason[:380],
+        0.55,
+        8.35,
+        7.00,
+        1.65,
+        "코멘트",
+        str(allocation_data.get("reason", ""))[:420] or "코멘트 없음",
     )
-    if allocation_chart_path and Path(allocation_chart_path).exists():
-        slide.shapes.add_picture(allocation_chart_path, Inches(1.4), Inches(4.4), width=Inches(5.1))
+
     add_footer(slide, report_month, page_no)
     page_no += 1
 
     # 7. Fund table
-    fund_display = prepare_table_df(
-        fund_table,
-        keep_columns=["유형", "펀드명", "펀드등급", "1Y", "3Y"],
-        rename_map={},
-        max_rows=5,
-    )
+    fund_display = prepare_table_df(fund_table, keep_columns=["유형", "펀드명", "펀드등급", "1Y", "3Y"], rename_map={}, max_rows=5)
     slide = add_table_slide(prs, report_month, "06", "추천 펀드 수익률 현황", fund_display, [1.2, 3.6, 1.2, 0.9, 0.9])
     add_footer(slide, report_month, page_no)
     page_no += 1
@@ -1251,36 +904,18 @@ def create_pptx_report(
     add_report_header(slide, report_month, "07", "추천 펀드 차트")
     if fund_chart_path and Path(fund_chart_path).exists():
         slide.shapes.add_picture(fund_chart_path, Inches(0.6), Inches(2.35), width=Inches(7.0))
-    add_chart_comment_box(
-        slide,
-        0.6,
-        7.85,
-        7.0,
-        1.5,
-        "포인트",
-        "추천 펀드 간 1년 수익률 비교를 중심으로 배치했습니다.",
-    )
+    add_chart_comment_box(slide, 0.6, 7.85, 7.0, 1.5, "포인트", "추천 펀드 간 1년 수익률 비교를 중심으로 배치했습니다.")
     add_footer(slide, report_month, page_no)
     page_no += 1
 
     # 9. Performance
-    perf_table_display = prepare_table_df(
-        perf_table,
-        keep_columns=["자산군", "펀드명", "1M", "3M", "1Y"],
-        rename_map={},
-        max_rows=5,
-    )
+    perf_table_display = prepare_table_df(perf_table, keep_columns=["자산군", "펀드명", "1M", "3M", "1Y"], rename_map={}, max_rows=5)
     slide = add_table_slide(prs, report_month, "08", "변액펀드 성과현황", perf_table_display, [1.2, 3.5, 0.9, 0.9, 0.9])
     add_footer(slide, report_month, page_no)
     page_no += 1
 
     # 10. Manager status
-    manager_display = prepare_table_df(
-        manager_status_table,
-        keep_columns=["펀드명", "운용사", "수탁회사"],
-        rename_map={},
-        max_rows=5,
-    )
+    manager_display = prepare_table_df(manager_status_table, keep_columns=["펀드명", "운용사", "수탁회사"], rename_map={}, max_rows=5)
     slide = add_table_slide(prs, report_month, "09", "펀드별 위탁운용사 현황", manager_display, [2.4, 2.6, 2.0])
     add_footer(slide, report_month, page_no)
 
@@ -1294,10 +929,7 @@ def write_outputs(paths: dict[str, Path], summary_text: str, metadata: dict, ppt
     metadata_path = paths["report_root"] / "report_metadata.json"
 
     summary_path.write_text(summary_text, encoding="utf-8")
-    metadata_path.write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"Created: {summary_path}")
     print(f"Created: {metadata_path}")
@@ -1310,13 +942,12 @@ def main():
     paths = ensure_directories(args.month, args.mode)
 
     source_status = summarize_source_status()
-
     cover_info = get_cover_info()
     market_comments = get_market_comments()
     market_perf_df = get_market_perf_table()
     analyst_text = get_analyst_comment()
     manager_text = get_manager_comment()
-    allocation_info = get_allocation_data()
+    allocation_data = get_allocation_data()
     fund_table = get_recommended_fund_table()
     perf_table = get_performance_table()
     manager_status_table = get_manager_status_table()
@@ -1324,15 +955,10 @@ def main():
     asset_chart_path = create_market_perf_summary_chart(market_perf_df, paths["charts_dir"])
     market_chart_1, market_chart_2 = create_market_dual_chart(market_perf_df, paths["charts_dir"])
     fund_chart_path = create_fund_chart(fund_table, paths["charts_dir"])
-    allocation_chart_path = create_allocation_chart(allocation_info["current_alloc"], paths["charts_dir"])
+    prev_alloc_chart_path = create_allocation_chart(allocation_data.get("prev_alloc", pd.DataFrame()), paths["charts_dir"], "prev_allocation.png", "이전월 자산배분")
+    current_alloc_chart_path = create_allocation_chart(allocation_data.get("current_alloc", pd.DataFrame()), paths["charts_dir"], "current_allocation.png", "당월 자산배분")
 
-    summary_text = build_summary_text(
-        args.month,
-        source_status,
-        market_comments,
-        analyst_text,
-        manager_text,
-    )
+    summary_text = build_summary_text(args.month, source_status, market_comments, analyst_text, manager_text)
 
     metadata = {
         "generated_at": datetime.now().isoformat(),
@@ -1345,23 +971,24 @@ def main():
             "manager_company": MANAGER_PROFILE["company"],
             "manager_name": MANAGER_PROFILE["name"],
         },
+        "allocation": {
+            "prev_rows": len(allocation_data.get("prev_alloc", pd.DataFrame())),
+            "current_rows": len(allocation_data.get("current_alloc", pd.DataFrame())),
+            "comment_len": len(allocation_data.get("reason", "")),
+        },
         "tables": {
             "market_perf_rows": len(market_perf_df),
             "fund_rows": len(fund_table),
             "performance_rows": len(perf_table),
             "manager_status_rows": len(manager_status_table),
         },
-        "comments": {
-            "global_outlook_len": len(market_comments.get("global_outlook", "")),
-            "domestic_stocks_len": len(market_comments.get("domestic_stocks", "")),
-            "domestic_bonds_len": len(market_comments.get("domestic_bonds", "")),
-        },
         "charts": {
             "asset_chart": asset_chart_path,
             "market_chart_1": market_chart_1,
             "market_chart_2": market_chart_2,
             "fund_chart": fund_chart_path,
-            "allocation_chart": allocation_chart_path,
+            "prev_alloc_chart": prev_alloc_chart_path,
+            "current_alloc_chart": current_alloc_chart_path,
         },
     }
 
@@ -1373,12 +1000,13 @@ def main():
         market_perf_df=market_perf_df,
         analyst_text=analyst_text,
         manager_text=manager_text,
-        allocation_reason=allocation_info.get("reason", ""),
+        allocation_data=allocation_data,
         asset_chart_path=asset_chart_path,
         market_chart_1=market_chart_1,
         market_chart_2=market_chart_2,
         fund_chart_path=fund_chart_path,
-        allocation_chart_path=allocation_chart_path,
+        prev_alloc_chart_path=prev_alloc_chart_path,
+        current_alloc_chart_path=current_alloc_chart_path,
         fund_table=fund_table,
         perf_table=perf_table,
         manager_status_table=manager_status_table,
