@@ -25,6 +25,21 @@ WHITE = RGBColor(255, 255, 255)
 SLIDE_W = 8.27
 SLIDE_H = 11.69
 
+# =========================
+# 프로필 정보: 여기만 바꾸면 4,5페이지에 반영
+# =========================
+ANALYST_PROFILE = {
+    "company": "동양생명",
+    "name": "애널리스트 이름",
+    "photo": str(BASE_DIR / "data" / "input" / "profile" / "analyst.jpg"),
+}
+
+MANAGER_PROFILE = {
+    "company": "동양생명",
+    "name": "펀드매니저 이름",
+    "photo": str(BASE_DIR / "data" / "input" / "profile" / "manager.jpg"),
+}
+
 SOURCE_FILES = {
     "cover": INPUT_DIR / "cover" / "(P.1) (변경 O) 표지.xlsx",
     "market_main": INPUT_DIR / "market" / "(P.2-3) (변경 O) 01.주요자산 시장점검.xlsx",
@@ -344,6 +359,115 @@ def add_summary_comment_box(slide, left, top, width, height, title, body):
     )
 
 
+def add_profile_box(slide, left, top, width, height, company, name, photo_path):
+    outer = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        Inches(left),
+        Inches(top),
+        Inches(width),
+        Inches(height),
+    )
+    outer.fill.solid()
+    outer.fill.fore_color.rgb = RGBColor(248, 250, 253)
+    outer.line.color.rgb = RGBColor(190, 205, 220)
+
+    photo_box_left = left + 0.12
+    photo_box_top = top + 0.14
+    photo_box_w = 1.15
+    photo_box_h = 1.35
+
+    photo_frame = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(photo_box_left),
+        Inches(photo_box_top),
+        Inches(photo_box_w),
+        Inches(photo_box_h),
+    )
+    photo_frame.fill.solid()
+    photo_frame.fill.fore_color.rgb = WHITE
+    photo_frame.line.color.rgb = RGBColor(180, 190, 205)
+
+    photo = Path(photo_path) if photo_path else None
+    if photo and photo.exists():
+        try:
+            slide.shapes.add_picture(
+                str(photo),
+                Inches(photo_box_left + 0.02),
+                Inches(photo_box_top + 0.02),
+                width=Inches(photo_box_w - 0.04),
+                height=Inches(photo_box_h - 0.04),
+            )
+        except Exception:
+            add_textbox(
+                slide,
+                photo_box_left + 0.12,
+                photo_box_top + 0.55,
+                0.9,
+                0.2,
+                "사진",
+                font_size=9,
+                align=PP_ALIGN.CENTER,
+                font_color=THEME_DARK,
+            )
+    else:
+        add_textbox(
+            slide,
+            photo_box_left + 0.12,
+            photo_box_top + 0.55,
+            0.9,
+            0.2,
+            "사진",
+            font_size=9,
+            align=PP_ALIGN.CENTER,
+            font_color=THEME_DARK,
+        )
+
+    add_textbox(
+        slide,
+        left + 1.42,
+        top + 0.22,
+        width - 1.58,
+        0.22,
+        "회사명",
+        font_size=8.5,
+        bold=True,
+        font_color=THEME_BLUE,
+    )
+    add_textbox(
+        slide,
+        left + 1.42,
+        top + 0.46,
+        width - 1.58,
+        0.22,
+        company,
+        font_size=10,
+        font_color=THEME_DARK,
+    )
+
+    add_textbox(
+        slide,
+        left + 1.42,
+        top + 0.86,
+        width - 1.58,
+        0.22,
+        "이름",
+        font_size=8.5,
+        bold=True,
+        font_color=THEME_BLUE,
+    )
+    add_textbox(
+        slide,
+        left + 1.42,
+        top + 1.10,
+        width - 1.58,
+        0.26,
+        name,
+        font_size=11,
+        bold=True,
+        font_color=THEME_DARK,
+    )
+
+
 def format_table_text(cell, font_size=9, bold=False, align=PP_ALIGN.CENTER, font_color=THEME_DARK):
     tf = cell.text_frame
     tf.vertical_anchor = MSO_ANCHOR.MIDDLE
@@ -397,17 +521,13 @@ def row_joined_text(ws, row_idx: int):
 
 def extract_block_below_keyword(ws, keyword: str, stop_keywords=None, max_rows=12):
     stop_keywords = stop_keywords or []
-
     hits = find_keyword_positions(ws, keyword)
     if not hits:
         return ""
 
-    # 마지막 매칭을 우선 사용
-    start_row, start_col, hit_text = hits[-1]
-
+    start_row, start_col, _ = hits[-1]
     lines = []
 
-    # 같은 행 오른쪽 텍스트도 우선 수집
     same_row_vals = []
     for c in range(start_col + 1, min(ws.max_column, start_col + 12) + 1):
         v = ws.cell(start_row, c).value
@@ -578,7 +698,6 @@ def get_market_comments():
         max_rows=10,
     )
 
-    # fallback
     if not global_text:
         global_text = str(ws.cell(21, 3).value or "")
     if not stock_text:
@@ -1068,14 +1187,34 @@ def create_pptx_report(
     # 4. Analyst
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_report_header(slide, report_month, "03", "애널리스트 코멘트")
-    add_textbox(slide, 0.6, 2.35, 7.0, 7.8, analyst_text[:2200], font_size=10.8)
+    add_profile_box(
+        slide,
+        left=5.45,
+        top=2.30,
+        width=2.15,
+        height=1.65,
+        company=ANALYST_PROFILE["company"],
+        name=ANALYST_PROFILE["name"],
+        photo_path=ANALYST_PROFILE["photo"],
+    )
+    add_textbox(slide, 0.6, 2.35, 4.55, 7.8, analyst_text[:2200], font_size=10.8)
     add_footer(slide, report_month, page_no)
     page_no += 1
 
     # 5. Manager
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_report_header(slide, report_month, "04", "매니저 코멘트")
-    add_textbox(slide, 0.6, 2.35, 7.0, 7.8, manager_text[:2200], font_size=10.8)
+    add_profile_box(
+        slide,
+        left=5.45,
+        top=2.30,
+        width=2.15,
+        height=1.65,
+        company=MANAGER_PROFILE["company"],
+        name=MANAGER_PROFILE["name"],
+        photo_path=MANAGER_PROFILE["photo"],
+    )
+    add_textbox(slide, 0.6, 2.35, 4.55, 7.8, manager_text[:2200], font_size=10.8)
     add_footer(slide, report_month, page_no)
     page_no += 1
 
@@ -1200,6 +1339,12 @@ def main():
         "report_month": args.month,
         "mode": args.mode,
         "source_status": source_status,
+        "profiles": {
+            "analyst_company": ANALYST_PROFILE["company"],
+            "analyst_name": ANALYST_PROFILE["name"],
+            "manager_company": MANAGER_PROFILE["company"],
+            "manager_name": MANAGER_PROFILE["name"],
+        },
         "tables": {
             "market_perf_rows": len(market_perf_df),
             "fund_rows": len(fund_table),
