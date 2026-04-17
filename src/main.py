@@ -66,6 +66,14 @@ def ensure_directories(report_month: str, mode: str) -> dict[str, Path]:
     }
 
 
+def format_issue_label(report_month: str) -> str:
+    try:
+        year, month = report_month.split("-")
+        return f"{int(year)}년 {int(month)}월"
+    except Exception:
+        return report_month
+
+
 def safe_load_workbook(path: Path):
     if not path.exists():
         return None
@@ -194,19 +202,98 @@ def add_cover_background(slide):
     bg.line.color.rgb = RGBColor(31, 78, 121)
 
 
-def add_section_title(slide, title_text: str, subtitle_text: str | None = None):
-    add_banner(slide, title_text)
-    if subtitle_text:
-        add_textbox(
-            slide,
-            0.65,
-            0.78,
-            6.8,
-            0.25,
-            subtitle_text,
-            font_size=10,
-            font_color=RGBColor(90, 90, 90),
-        )
+def add_report_header(slide, report_month: str, section_no: str, section_title: str):
+    header = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(0),
+        Inches(0),
+        Inches(SLIDE_W),
+        Inches(0.95),
+    )
+    header.fill.solid()
+    header.fill.fore_color.rgb = THEME_BLUE
+    header.line.color.rgb = THEME_BLUE
+
+    add_textbox(
+        slide,
+        0.28,
+        0.14,
+        4.8,
+        0.22,
+        "동양생명 변액보험 월간 투자전략 GUIDE",
+        font_size=12,
+        bold=True,
+        font_color=WHITE,
+    )
+
+    add_textbox(
+        slide,
+        0.28,
+        0.42,
+        2.2,
+        0.18,
+        "모집인교육용 / 대외비",
+        font_size=7.5,
+        font_color=WHITE,
+    )
+
+    pill = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        Inches(7.05),
+        Inches(0.14),
+        Inches(0.95),
+        Inches(0.34),
+    )
+    pill.fill.solid()
+    pill.fill.fore_color.rgb = RGBColor(79, 128, 189)
+    pill.line.color.rgb = WHITE
+
+    add_textbox(
+        slide,
+        7.12,
+        0.205,
+        0.8,
+        0.12,
+        f"{format_issue_label(report_month)}호",
+        font_size=7.3,
+        align=PP_ALIGN.CENTER,
+        font_color=WHITE,
+    )
+
+    add_textbox(
+        slide,
+        0.55,
+        1.1,
+        0.9,
+        0.55,
+        section_no,
+        font_size=28,
+        bold=True,
+        font_color=RGBColor(210, 220, 235),
+    )
+
+    add_textbox(
+        slide,
+        0.55,
+        1.6,
+        3.6,
+        0.35,
+        section_title,
+        font_size=16,
+        bold=True,
+        font_color=THEME_BLUE,
+    )
+
+    line = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(0.55),
+        Inches(2.08),
+        Inches(7.1),
+        Inches(0.025),
+    )
+    line.fill.solid()
+    line.fill.fore_color.rgb = THEME_BLUE
+    line.line.color.rgb = THEME_BLUE
 
 
 def add_card_box(slide, left, top, width, height, title, body):
@@ -552,12 +639,12 @@ def prepare_table_df(df: pd.DataFrame, keep_columns: list[str], rename_map: dict
     return display_df
 
 
-def add_table_slide(prs, title, df: pd.DataFrame, widths):
+def add_table_slide(prs, report_month: str, section_no: str, title: str, df: pd.DataFrame, widths):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_section_title(slide, title)
+    add_report_header(slide, report_month, section_no, title)
 
     if df.empty:
-        add_textbox(slide, 1.0, 2.0, 5.0, 1.0, "표 데이터가 없습니다.")
+        add_textbox(slide, 1.0, 2.6, 5.0, 1.0, "표 데이터가 없습니다.")
         return slide
 
     rows = len(df) + 1
@@ -566,7 +653,7 @@ def add_table_slide(prs, title, df: pd.DataFrame, widths):
         rows,
         cols,
         Inches(0.35),
-        Inches(1.25),
+        Inches(2.45),
         Inches(7.45),
         Inches(4.2),
     ).table
@@ -697,15 +784,15 @@ def create_pptx_report(
 
     # 2. Summary
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_section_title(slide, "핵심 요약", "월간 보고서 주요 포인트")
+    add_report_header(slide, report_month, "01", "핵심 요약")
 
     market_summary = str(market_info.get("market_comment", ""))[:300]
     analyst_summary = str(analyst_text)[:300]
     manager_summary = str(manager_text)[:300]
 
-    add_card_box(slide, 0.5, 1.3, 7.1, 1.8, "시장 요약", market_summary)
-    add_card_box(slide, 0.5, 3.3, 7.1, 1.8, "애널리스트 코멘트", analyst_summary)
-    add_card_box(slide, 0.5, 5.3, 7.1, 1.8, "매니저 코멘트", manager_summary)
+    add_card_box(slide, 0.5, 2.4, 7.1, 1.5, "시장 요약", market_summary)
+    add_card_box(slide, 0.5, 4.05, 7.1, 1.5, "애널리스트 코멘트", analyst_summary)
+    add_card_box(slide, 0.5, 5.7, 7.1, 1.5, "매니저 코멘트", manager_summary)
 
     summary_lines = [
         f"기준월: {report_month}",
@@ -714,26 +801,26 @@ def create_pptx_report(
         f"성과현황 건수: {len(perf_table)}",
         f"운용사 현황 건수: {len(manager_status_table)}",
     ]
-    add_textbox(slide, 0.6, 7.5, 7.0, 1.0, "\n".join(summary_lines), font_size=11)
+    add_textbox(slide, 0.6, 7.6, 7.0, 1.0, "\n".join(summary_lines), font_size=11)
 
     add_footer(slide, report_month, page_no)
     page_no += 1
 
     # 3. Market
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_section_title(slide, "1. 주요 자산 시장 점검")
+    add_report_header(slide, report_month, "02", "주요 자산 시장 점검")
 
     if asset_chart_path and Path(asset_chart_path).exists():
-        slide.shapes.add_picture(asset_chart_path, Inches(0.6), Inches(1.2), width=Inches(7.0))
+        slide.shapes.add_picture(asset_chart_path, Inches(0.6), Inches(2.35), width=Inches(7.0))
 
     add_chart_comment_box(
         slide,
         0.6,
+        7.85,
         7.0,
-        7.0,
-        2.0,
+        1.6,
         "시장 코멘트",
-        str(market_info.get("market_comment", ""))[:350],
+        str(market_info.get("market_comment", ""))[:300],
     )
 
     add_footer(slide, report_month, page_no)
@@ -741,32 +828,32 @@ def create_pptx_report(
 
     # 4. Analyst
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_section_title(slide, "2. 애널리스트 코멘트")
-    add_textbox(slide, 0.6, 1.1, 7.0, 8.8, analyst_text[:2400], font_size=11)
+    add_report_header(slide, report_month, "03", "애널리스트 코멘트")
+    add_textbox(slide, 0.6, 2.35, 7.0, 7.8, analyst_text[:2200], font_size=10.8)
     add_footer(slide, report_month, page_no)
     page_no += 1
 
     # 5. Manager
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_section_title(slide, "3. 매니저 코멘트")
-    add_textbox(slide, 0.6, 1.1, 7.0, 8.8, manager_text[:2400], font_size=11)
+    add_report_header(slide, report_month, "04", "매니저 코멘트")
+    add_textbox(slide, 0.6, 2.35, 7.0, 7.8, manager_text[:2200], font_size=10.8)
     add_footer(slide, report_month, page_no)
     page_no += 1
 
     # 6. Allocation
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_section_title(slide, "4. 투자자별 자산배분 전략")
+    add_report_header(slide, report_month, "05", "투자자별 자산배분 전략")
     add_chart_comment_box(
         slide,
         0.6,
-        1.1,
+        2.35,
         7.0,
-        2.2,
+        1.7,
         "자산배분 코멘트",
-        allocation_reason[:500],
+        allocation_reason[:380],
     )
     if allocation_chart_path and Path(allocation_chart_path).exists():
-        slide.shapes.add_picture(allocation_chart_path, Inches(1.5), Inches(3.8), width=Inches(5.0))
+        slide.shapes.add_picture(allocation_chart_path, Inches(1.4), Inches(4.4), width=Inches(5.1))
     add_footer(slide, report_month, page_no)
     page_no += 1
 
@@ -777,21 +864,21 @@ def create_pptx_report(
         rename_map={},
         max_rows=5,
     )
-    slide = add_table_slide(prs, "5. 추천 펀드 수익률 현황", fund_display, [1.2, 3.6, 1.2, 0.9, 0.9])
+    slide = add_table_slide(prs, report_month, "06", "추천 펀드 수익률 현황", fund_display, [1.2, 3.6, 1.2, 0.9, 0.9])
     add_footer(slide, report_month, page_no)
     page_no += 1
 
     # 8. Fund chart
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_section_title(slide, "6. 추천 펀드 차트")
+    add_report_header(slide, report_month, "07", "추천 펀드 차트")
     if fund_chart_path and Path(fund_chart_path).exists():
-        slide.shapes.add_picture(fund_chart_path, Inches(0.6), Inches(1.2), width=Inches(7.0))
+        slide.shapes.add_picture(fund_chart_path, Inches(0.6), Inches(2.35), width=Inches(7.0))
     add_chart_comment_box(
         slide,
         0.6,
+        7.85,
         7.0,
-        7.0,
-        1.8,
+        1.5,
         "포인트",
         "추천 펀드 간 1년 수익률 비교를 중심으로 배치했습니다.",
     )
@@ -805,7 +892,7 @@ def create_pptx_report(
         rename_map={},
         max_rows=5,
     )
-    slide = add_table_slide(prs, "7. 변액펀드 성과현황", perf_display, [1.2, 3.5, 0.9, 0.9, 0.9])
+    slide = add_table_slide(prs, report_month, "08", "변액펀드 성과현황", perf_display, [1.2, 3.5, 0.9, 0.9, 0.9])
     add_footer(slide, report_month, page_no)
     page_no += 1
 
@@ -816,7 +903,7 @@ def create_pptx_report(
         rename_map={},
         max_rows=5,
     )
-    slide = add_table_slide(prs, "8. 펀드별 위탁운용사 현황", manager_display, [2.4, 2.6, 2.0])
+    slide = add_table_slide(prs, report_month, "09", "펀드별 위탁운용사 현황", manager_display, [2.4, 2.6, 2.0])
     add_footer(slide, report_month, page_no)
 
     output_path = paths["report_root"] / "monthly_report_draft.pptx"
