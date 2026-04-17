@@ -644,7 +644,6 @@ def create_pptx_report(
 
     page_no = 1
 
-    # 1. Cover
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_cover_background(slide)
 
@@ -677,7 +676,6 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 2. Summary
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_section_title(slide, "핵심 요약", "월간 보고서 주요 포인트")
 
@@ -701,7 +699,6 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 3. Market
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_section_title(slide, "1. 주요 자산 시장 점검")
 
@@ -721,21 +718,18 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 4. Analyst
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_section_title(slide, "2. 애널리스트 코멘트")
     add_textbox(slide, 0.6, 1.1, 7.0, 8.8, analyst_text[:2400], font_size=11)
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 5. Manager
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_section_title(slide, "3. 매니저 코멘트")
     add_textbox(slide, 0.6, 1.1, 7.0, 8.8, manager_text[:2400], font_size=11)
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 6. Allocation
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_section_title(slide, "4. 투자자별 자산배분 전략")
     add_chart_comment_box(
@@ -752,7 +746,6 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 7. Fund table
     fund_display = prepare_table_df(
         fund_table,
         keep_columns=["유형", "펀드명", "펀드등급", "1Y", "3Y"],
@@ -763,7 +756,6 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 8. Fund chart
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_section_title(slide, "6. 추천 펀드 차트")
     if fund_chart_path and Path(fund_chart_path).exists():
@@ -780,7 +772,6 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 9. Performance table
     perf_display = prepare_table_df(
         perf_table,
         keep_columns=["자산군", "펀드명", "1M", "3M", "1Y"],
@@ -791,7 +782,6 @@ def create_pptx_report(
     add_footer(slide, report_month, page_no)
     page_no += 1
 
-    # 10. Manager status
     manager_display = prepare_table_df(
         manager_status_table,
         keep_columns=["펀드명", "운용사", "수탁회사"],
